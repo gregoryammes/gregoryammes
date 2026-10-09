@@ -179,7 +179,10 @@ describe("V8 — finance", () => {
     expect(ids).toContain("p1-jornada")
     expect(L.stats.settledHidden.p1).toBe(1)
     // Kept with a warning: the action with the forecast NF and those whose proof is still pending (V18 records).
-    expect(L.stats.settledKeptOpen.p1.some((x) => x.includes("NF prevista"))).toBe(true)
+    const kept = L.stats.settledKeptOpen.p1
+    expect(kept.filter((x) => x.includes("NF prevista"))).toHaveLength(1)
+    // every other kept action is kept only for its pending proof — never silently hidden
+    expect(kept.every((x) => x.includes("NF prevista") || /comprova/i.test(x))).toBe(true)
     expect(doc.items.some((i) => i.id === "p1-robotica")).toBe(true)
     const items = applyScenario(doc, "baseline")
     expect(isSettled(actionInfo(items.find((i) => i.id === "p1-robotica")!, items, doc.finRecords!, REF))).toBe(true)

@@ -102,8 +102,9 @@ describe("V11 — resumo financeiro", () => {
     expect(s).toMatchObject({ acqs: 2, contracted: 5000, paid: 2000, balance: 3000, missing: 1 })
     const none = summarize(createSeed().finRecords!, new Set(["t2"]))
     expect([none.contracted, none.paid, none.balance]).toEqual([null, null, null])
-    // Técnico 1 as informed in V18: R$ 298.012 contracted and paid in advance → balance 0, counted once.
-    const t1 = summarize(createSeed().finRecords!, new Set(["t1", "t1"]))
+    // Técnico 1 as informed in V18: R$ 298.012 contracted and paid in advance → balance 0, counted once
+    // even when the course and its bolsas are summed together.
+    const t1 = summarize(createSeed().finRecords!, new Set(["t1", "t1-bolsas"]))
     expect([t1.contracted, t1.paid, t1.balance]).toEqual([298012, 298012, 0])
   })
 })

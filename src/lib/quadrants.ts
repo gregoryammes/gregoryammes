@@ -111,9 +111,9 @@ export function quadrantRows(q: Quadrant, rows: Row[], total: number): { top: nu
   return { top: rows[lo].top, bottom: rows[hi].top + rows[hi].h, anchored: true }
 }
 
-/** Row under a body-y coordinate (for drawing a quadrant). */
+/** Row under a body-y coordinate (for drawing a quadrant). Note rows are skipped: they are not anchors. */
 export function rowAtY(rows: Row[], y: number): Row | undefined {
   let best: Row | undefined
-  for (const r of rows) if (y >= r.top) best = r
-  return best
+  for (const r of rows) if (y >= r.top && r.type !== "note") best = r
+  return best ?? rows.find((r) => r.type !== "note")
 }

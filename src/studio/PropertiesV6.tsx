@@ -146,7 +146,7 @@ export function CourseTurmaSection({ it }: { it: EffItem }) {
             onClick={() => {
               let created = ""
               st.commit("cadastrar turma", (d) => {
-                const r = newTurmaFor(d, it)
+                const r = newTurmaFor(d, it, st.scenarioId)
                 created = r.id
                 return r.doc
               })
@@ -162,7 +162,7 @@ export function CourseTurmaSection({ it }: { it: EffItem }) {
               value=""
               onChange={(e) => {
                 const id = e.target.value
-                if (id) st.commit("vincular turma", (d) => patchTurma(setItemTurmas(d, it.id, [...(it.turmaIds ?? []), id]), id, { offeringId: it.id }))
+                if (id) st.commit("vincular turma", (d) => patchTurma(setItemTurmas(d, it.id, (cur) => [...new Set([...cur, id])], st.scenarioId), id, { offeringId: it.id }))
               }}
             >
               <option value="">Vincular existente…</option>
@@ -259,7 +259,7 @@ function TurmaEditor({ t, open, onToggle, offeringId }: { t: Turma; open: boolea
             <textarea className="field min-h-[48px]" value={draft.notes ?? ""} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} onBlur={() => draft.notes !== t.notes && save({ notes: draft.notes })} />
           </label>
           <div className="flex justify-between">
-            <Button size="sm" variant="ghost" onClick={() => st.commit("desvincular turma", (d) => setItemTurmas(patchTurma(d, t.id, { offeringId: null }), offeringId, (d.items.find((i) => i.id === offeringId)?.turmaIds ?? []).filter((x) => x !== t.id)))}>
+            <Button size="sm" variant="ghost" onClick={() => st.commit("desvincular turma", (d) => setItemTurmas(patchTurma(d, t.id, { offeringId: null }), offeringId, (cur) => cur.filter((x) => x !== t.id), st.scenarioId))}>
               Desvincular
             </Button>
             <Button size="sm" variant="danger" onClick={async () => (await confirmAction(`Excluir a turma “${t.name}”? Os vínculos serão removidos (é possível desfazer).`)) && st.commit("excluir turma", (d) => deleteTurma(d, t.id))}>
@@ -287,7 +287,7 @@ export function BolsaLinksSection({ it }: { it: EffItem }) {
         {turmas.length === 0 && <p className="text-[12px] text-muted-foreground">Nenhuma turma cadastrada.</p>}
         {turmas.map((t) => (
           <label key={t.id} className="flex items-center gap-2 py-0.5 text-[12px]">
-            <input type="checkbox" checked={sel.has(t.id)} onChange={() => st.commit("turmas da bolsa", (d) => setItemTurmas(d, it.id, sel.has(t.id) ? [...sel].filter((x) => x !== t.id) : [...sel, t.id]))} />
+            <input type="checkbox" checked={sel.has(t.id)} onChange={() => st.commit("turmas da bolsa", (d) => setItemTurmas(d, it.id, (cur) => (cur.includes(t.id) ? cur.filter((x) => x !== t.id) : [...cur, t.id]), st.scenarioId))} />
             {t.name}
           </label>
         ))}

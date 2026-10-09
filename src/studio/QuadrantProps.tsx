@@ -32,6 +32,35 @@ function Text({ value, onCommit, label, multiline }: { value: string; onCommit: 
   )
 }
 
+/** Start and end edited together, committed on blur / Enter — typing a year never saves "0002". */
+function QuadDates({ q, disabled, onCommit }: { q: Quadrant; disabled?: boolean; onCommit: (start: string, end: string) => void }) {
+  const [a, setA] = useState(q.start)
+  const [b, setB] = useState(q.end)
+  useEffect(() => {
+    setA(q.start)
+    setB(q.end)
+  }, [q.start, q.end])
+  const commit = () => {
+    if (!isValidISO(a) || !isValidISO(b)) {
+      setA(q.start)
+      setB(q.end)
+      return
+    }
+    if (a !== q.start || b !== q.end) onCommit(a, b)
+  }
+  const key = (e: React.KeyboardEvent<HTMLInputElement>) => e.key === "Enter" && (e.target as HTMLInputElement).blur()
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <label className="block"><Lbl>Início</Lbl>
+        <input aria-label="Início do quadrante" type="date" className="field" value={a} disabled={disabled} onChange={(e) => setA(e.target.value)} onBlur={commit} onKeyDown={key} />
+      </label>
+      <label className="block"><Lbl>Fim (inclusivo)</Lbl>
+        <input aria-label="Fim do quadrante" type="date" className="field" value={b} disabled={disabled} onChange={(e) => setB(e.target.value)} onBlur={commit} onKeyDown={key} />
+      </label>
+    </div>
+  )
+}
+
 /** Quadrant panel. Every field is visual: contracts, dates of records and values are never touched. */
 export function QuadrantProps({ q }: { q: Quadrant }) {
   const st = useStudio()
@@ -46,6 +75,9 @@ export function QuadrantProps({ q }: { q: Quadrant }) {
     setErr(null)
     st.commit(label, (d) => patchQuadrant(d, q.id, p))
   }
+  const lockedPlace = !!q.locked
+  // Anchors that the current layout does not list (e.g. a row hidden by a filter) stay visible as such.
+  const known = new Set(rows.map((r) => r.key))
   const live = (p: Partial<Quadrant>) => st.live((d) => patchQuadrant(d, q.id, p))
   const projects = doc.projects
   const setRule = (rule: QuadrantRule) => patch({ mode: "auto", rule }, "regra do quadrante")
@@ -65,13 +97,13 @@ export function QuadrantProps({ q }: { q: Quadrant }) {
 
       <V6Section title="Período">
         <div className="flex gap-1">
-          <Button size="sm" variant="outline" active={q.mode === "manual"} onClick={() => patch({ mode: "manual", ...(range ? { start: fromDay(range.start), end: fromDay(range.end - 1) } : {}) }, "quadrante manual")}>Manual</Button>
-          <Button size="sm" variant="outline" active={q.mode === "auto"} onClick={() => setRule(q.rule ?? { kind: "after_vigencia", projectId: "p2" })}>Automático</Button>
+          <Button size="sm" variant="outline" active={q.mode === "manual"} disabled={lockedPlace} onClick={() => patch({ mode: "manual", ...(range ? { start: fromDay(range.start), end: fromDay(range.end - 1) } : {}) }, "quadrante manual")}>Manual</Button>
+          <Button size="sm" variant="outline" active={q.mode === "auto"} disabled={lockedPlace} onClick={() => setRule(q.rule ?? { kind: "after_vigencia", projectId: "p2" })}>Automático</Button>
         </div>
         {q.mode === "auto" ? (
           <>
             <label className="block"><Lbl>Regra</Lbl>
-              <select aria-label="Regra do quadrante" className="field" value={q.rule?.kind ?? "after_vigencia"}
+              <select aria-label="Regra do quadrante" className="field" disabled={lockedPlace} value={q.rule?.kind ?? "after_vigencia"}
                 onChange={(e) => {
                   const k = e.target.value as QuadrantRule["kind"]
                   setRule(k === "between_projects" ? { kind: k, fromProjectId: "p2", toProjectId: "p3" } : { kind: k, projectId: q.rule && "projectId" in q.rule ? q.rule.projectId : "p2" })
@@ -81,7 +113,7 @@ export function QuadrantProps({ q }: { q: Quadrant }) {
             </label>
             {q.rule && q.rule.kind !== "between_projects" && (
               <label className="block"><Lbl>Projeto</Lbl>
-                <select aria-label="Projeto da regra" className="field" value={q.rule.projectId} onChange={(e) => setRule({ ...(q.rule as { kind: "after_vigencia" | "project_period"; projectId: string }), projectId: e.target.value })}>
+                <select aria-label="Projeto da regra" className="field" disabled={lockedPlace} value={q.rule.projectId} onChange={(e) => setRule({ ...(q.rule as { kind: "after_vigencia" | "project_period"; projectId: string }), projectId: e.target.value })}>
                   {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </label>
@@ -89,12 +121,12 @@ export function QuadrantProps({ q }: { q: Quadrant }) {
             {q.rule?.kind === "between_projects" && (
               <div className="grid grid-cols-2 gap-2">
                 <label className="block"><Lbl>De</Lbl>
-                  <select className="field" value={q.rule.fromProjectId} onChange={(e) => setRule({ kind: "between_projects", fromProjectId: e.target.value, toProjectId: (q.rule as { toProjectId: string }).toProjectId })}>
+                  <select aria-label="Projeto de origem" className="field" disabled={lockedPlace} value={q.rule.fromProjectId} onChange={(e) => setRule({ kind: "between_projects", fromProjectId: e.target.value, toProjectId: (q.rule as { toProjectId: string }).toProjectId })}>
                     {projects.map((p) => <option key={p.id} value={p.id}>{p.short}</option>)}
                   </select>
                 </label>
                 <label className="block"><Lbl>Para</Lbl>
-                  <select className="field" value={q.rule.toProjectId} onChange={(e) => setRule({ kind: "between_projects", fromProjectId: (q.rule as { fromProjectId: string }).fromProjectId, toProjectId: e.target.value })}>
+                  <select aria-label="Projeto de destino" className="field" disabled={lockedPlace} value={q.rule.toProjectId} onChange={(e) => setRule({ kind: "between_projects", fromProjectId: (q.rule as { fromProjectId: string }).fromProjectId, toProjectId: e.target.value })}>
                     {projects.map((p) => <option key={p.id} value={p.id}>{p.short}</option>)}
                   </select>
                 </label>
@@ -103,29 +135,25 @@ export function QuadrantProps({ q }: { q: Quadrant }) {
             {q.rule && <p className="text-[11.5px] leading-snug text-muted-foreground">{describeRule(q.rule, doc)}. Segue o cenário ativo{range ? "" : " — neste cenário a regra não produz período, e o quadrante não aparece"}.</p>}
           </>
         ) : (
-          <div className="grid grid-cols-2 gap-2">
-            <label className="block"><Lbl>Início</Lbl>
-              <input aria-label="Início do quadrante" type="date" className="field" value={q.start} disabled={q.locked} onChange={(e) => isValidISO(e.target.value) && patch({ start: e.target.value }, "período do quadrante")} />
-            </label>
-            <label className="block"><Lbl>Fim (inclusivo)</Lbl>
-              <input aria-label="Fim do quadrante" type="date" className="field" value={q.end} disabled={q.locked} onChange={(e) => isValidISO(e.target.value) && patch({ end: e.target.value }, "período do quadrante")} />
-            </label>
-          </div>
+          <QuadDates q={q} disabled={lockedPlace} onCommit={(start, end) => patch({ start, end }, "período do quadrante")} />
         )}
         <div className="grid grid-cols-2 gap-2">
           <label className="block"><Lbl>Linha inicial</Lbl>
-            <select aria-label="Linha inicial do quadrante" className="field" value={q.rowFrom ?? ""} onChange={(e) => patch({ rowFrom: e.target.value || null }, "linhas do quadrante")}>
+            <select aria-label="Linha inicial do quadrante" className="field" disabled={lockedPlace} value={q.rowFrom ?? ""} onChange={(e) => patch({ rowFrom: e.target.value || null }, "linhas do quadrante")}>
               <option value="">— topo —</option>
+              {q.rowFrom && !known.has(q.rowFrom) && <option value={q.rowFrom}>(linha não visível nesta exibição)</option>}
               {rows.map((r) => <option key={r.key} value={r.key}>{r.title}</option>)}
             </select>
           </label>
           <label className="block"><Lbl>Linha final</Lbl>
-            <select aria-label="Linha final do quadrante" className="field" value={q.rowTo ?? ""} onChange={(e) => patch({ rowTo: e.target.value || null }, "linhas do quadrante")}>
+            <select aria-label="Linha final do quadrante" className="field" disabled={lockedPlace} value={q.rowTo ?? ""} onChange={(e) => patch({ rowTo: e.target.value || null }, "linhas do quadrante")}>
               <option value="">— base —</option>
+              {q.rowTo && !known.has(q.rowTo) && <option value={q.rowTo}>(linha não visível nesta exibição)</option>}
               {rows.map((r) => <option key={r.key} value={r.key}>{r.title}</option>)}
             </select>
           </label>
         </div>
+        {lockedPlace && <p className="text-[11.5px] text-muted-foreground">Bloqueado: período, linhas e modo ficam fixos até desbloquear.</p>}
         {err && <p className="text-[11.5px] text-destructive">{err}</p>}
       </V6Section>
 
@@ -140,7 +168,8 @@ export function QuadrantProps({ q }: { q: Quadrant }) {
         </div>
         <label className="block"><Lbl>Opacidade do fundo · {Math.round(q.opacity * 100)}%</Lbl>
           <input aria-label="Opacidade do quadrante" type="range" min={0} max={0.5} step={0.01} className="w-full" value={q.opacity}
-            onPointerDown={() => st.begin("opacidade do quadrante")} onPointerUp={() => st.end()} onKeyUp={() => st.end()} onKeyDown={() => !useStudio.getState().tx && st.begin("opacidade do quadrante")}
+            onPointerDown={() => st.begin("opacidade do quadrante")} onPointerUp={() => st.end()} onKeyUp={() => st.end()} onBlur={() => st.end()}
+            onKeyDown={(e) => ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(e.key) && !useStudio.getState().tx && st.begin("opacidade do quadrante")}
             onChange={(e) => live({ opacity: +e.target.value })} />
         </label>
         <div className="grid grid-cols-2 gap-2">

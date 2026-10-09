@@ -461,7 +461,9 @@ function Bar({ it, r, y, h, X, docVig, k, step, size, ref_, color, lastCourseEnd
       {r.kind === "ops" && docVig && lastCourseEnd > docVig.end && range.end <= docVig.end + 31 && (
         <g>
           <rect x={X(docVig.end)} y={y + 2} width={Math.max(0, X(lastCourseEnd) - X(docVig.end))} height={h - 4} rx={4 * k} fill="none" stroke={C.after} strokeWidth={1.6} strokeDasharray="5 4" />
-          {X(lastCourseEnd) - X(docVig.end) > 90 * k && <text x={X(docVig.end) + 8 * k} y={y + h / 2 + 4 * k} fontSize={10.5 * k} fontWeight={700} fill={C.afterText}>continuidade a analisar</text>}
+          {X(lastCourseEnd) - X(docVig.end) > 44 * k && (
+            <text x={X(docVig.end) + 8 * k} y={y + h / 2 + 4 * k} fontSize={10.5 * k} fontWeight={700} fill={C.afterText}>{X(lastCourseEnd) - X(docVig.end) > 140 * k ? "continuidade a analisar" : "a analisar"}</text>
+          )}
           <title>Equipe e operação após a vigência: situação a analisar (não registrada como compromisso).</title>
         </g>
       )}

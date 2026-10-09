@@ -165,11 +165,12 @@ export function TimelineCanvas() {
         .filter((x) => x.range),
     [doc.quadrants, items, layout],
   )
-  // The built-in "after the vigência" tint steps aside when a quadrant already shows it.
-  const afterQuad = quads.some((x) => x.q.mode === "auto" && x.q.rule?.kind === "after_vigencia" && x.q.rule.projectId === "p2")
   const vig = items.find((i) => i.kind === "vigencia" && i.projectId === "p2") ?? items.find((i) => i.kind === "vigencia")
   // The documental marker is read from the baseline records, never from the active scenario.
   const docVig: DayRange | null = docVigRange(doc)
+  // The documental "after the vigência" tint steps aside only where a whole-height quadrant starting
+  // at the same documental end already shows it; a scenario-shifted quadrant never hides it.
+  const afterQuadEnd = docVig ? Math.max(docVig.end, ...quads.filter((x) => x.range!.start === docVig.end && !x.q.rowFrom && !x.q.rowTo).map((x) => x.range!.end)) : 0
   const hypVig: DayRange | null = vig && docVig && (vig.range.end !== docVig.end || vig.range.start !== docVig.start) ? vig.range : null
   const filter = view.projectFilter
   const dimmed = (it: EffItem) =>
@@ -202,7 +203,8 @@ export function TimelineCanvas() {
 
   const { x0, pxPerDay: ppd, scrollY } = view
   const ppy = ppd * 365.25
-  const showSem = ppy >= 90
+  // Levels: only years below 120 px/ano (the annual zoom), semesters from 120, months from 150.
+  const showSem = ppy >= 120
   // The ruler is always ANO → SEMESTRE → MÊS (quarters are not a reading level here).
   const showQuarters = false
   const showMonths = ppy >= 150
@@ -245,6 +247,7 @@ export function TimelineCanvas() {
         e.preventDefault()
         st.save()
       } else if (e.key === "Delete" || e.key === "Backspace") {
+        if (st.selectedQuad && !(st.doc.quadrants ?? []).some((q) => q.id === st.selectedQuad)) st.selectQuad(null)
         if (st.selectedQuad) {
           const id = st.selectedQuad
           confirmAction("Excluir o quadrante selecionado? Só o destaque visual é removido (é possível desfazer).").then((ok) => {
@@ -372,8 +375,8 @@ export function TimelineCanvas() {
     }
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
 
-    // Quadrants: draw with the tool; the title chip selects and moves; the edges resize.
-    if (v.tool === "quadrant" && p.x > LABEL_W && p.y > BODY_TOP) {
+    // Quadrants: draw with the tool (left button only; Space / middle button still pan); the title chip selects and moves; the edges resize.
+    if (v.tool === "quadrant" && e.button === 0 && !spaceDown && p.x > LABEL_W && p.y > BODY_TOP) {
       gesture.current = { type: "quad-new", sx: p.x, sy: p.y, cx: p.x, cy: p.y }
       return
     }
@@ -423,7 +426,7 @@ export function TimelineCanvas() {
     if (kind === "ann") {
       const a = doc.annotations.find((x) => x.id === id)
       if (!a) return
-      useStudio.setState({ selectedAnnotation: id, selection: [] })
+      useStudio.setState({ selectedAnnotation: id, selection: [], selectedFin: null, selectedQuad: null })
       gesture.current = { type: "ann", id, sx: p.x, sy: p.y, date: toDay(a.date), y: a.y, offset: a.offsetDays ?? 0, linked: !!a.linkedItemId, began: false }
       return
     }
@@ -575,9 +578,11 @@ export function TimelineCanvas() {
         const rowsNow = layout.rows
         const target = rowAtY(rowsNow, bodyY(p.y))
         const origin = rowAtY(rowsNow, bodyY(g.sy))
-        const dRows = target && origin ? rowsNow.indexOf(target) - rowsNow.indexOf(origin) : 0
-        const f = Math.max(0, Math.min(rowsNow.length - 1, g.from + dRows))
-        const t = Math.max(0, Math.min(rowsNow.length - 1, g.to + dRows))
+        const want = target && origin ? rowsNow.indexOf(target) - rowsNow.indexOf(origin) : 0
+        // One clamp for both anchors: the band keeps its height at the first and last rows.
+        const dRows = Math.max(-Math.min(g.from, g.to), Math.min(rowsNow.length - 1 - Math.max(g.from, g.to), want))
+        const f = g.from + dRows
+        const t = g.to + dRows
         patch.rowFrom = rowKey(rowsNow[f])
         patch.rowTo = rowKey(rowsNow[t])
       }
@@ -780,7 +785,7 @@ export function TimelineCanvas() {
         {/* ── Body ─────────────────────────────────────────────────────── */}
         <g clipPath="url(#clip-body)">
           {/* After the documental vigência: very light red, never hiding the bars */}
-          {docVig && !afterQuad && <rect x={X(docVig.end)} y={BODY_TOP} width={Math.max(0, size.w - X(docVig.end))} height={bodyH} fill={C.afterSoft} />}
+          {docVig && <rect x={X(afterQuadEnd)} y={BODY_TOP} width={Math.max(0, size.w - X(afterQuadEnd))} height={bodyH} fill={C.afterSoft} />}
           {hier && ProjectTints()}
           {layout.rows.map((r, i) =>
             r.type === "heading" ? (
@@ -795,7 +800,7 @@ export function TimelineCanvas() {
               <rect key={`z${i}`} x={LABEL_W} y={Y(r.top)} width={timeW} height={r.h} fill={C.zebra} fillOpacity={0.75} />
             ) : null,
           )}
-          {QuadrantLayer()}
+          {QuadrantLayer("fill")}
           {/* Grid */}
           {months.map((m, i) => (
             <line key={`gm${i}`} x1={X(m.day)} x2={X(m.day)} y1={BODY_TOP} y2={size.h} stroke={C.gridSoft} />
@@ -863,6 +868,9 @@ export function TimelineCanvas() {
 
           {/* Annotations */}
           {view.showAnnotations && doc.annotations.map((a) => <g key={a.id}>{AnnotationShape({ a })}</g>)}
+
+          {/* Quadrant title chips and edge handles sit above the bars so they stay reachable */}
+          {QuadrantLayer("chrome")}
 
           {/* Drop indicator for a vertical move */}
           {dropLine && <line x1={LABEL_W - 120} x2={size.w} y1={Y(dropLine.lineY)} y2={Y(dropLine.lineY)} stroke={C.blue} strokeWidth={2.5} pointerEvents="none" />}
@@ -1437,11 +1445,11 @@ export function TimelineCanvas() {
    * Quadrants: tinted areas over a period and a band of rows, drawn under bars and texts. The title
    * chip is the handle (select, move); a selected manual quadrant shows its edge handles.
    */
-  function QuadrantLayer() {
+  function QuadrantLayer(pass: "fill" | "chrome") {
     // Title chips of overlapping quadrants stack instead of covering each other.
     const chips: { x: number; y: number; w: number }[] = []
     return (
-      <g data-quadrants="">
+      <g data-quadrants={pass}>
         {quads.map(({ q, range, rows }) => {
           const x1 = X(range!.start)
           const x2 = X(range!.end)
@@ -1453,25 +1461,36 @@ export function TimelineCanvas() {
           const ink = mix(sc, "#000000", 0.42)
           const tw = textWidth(q.title, 11) + 18
           const tx = Math.max(x1, LABEL_W) + 6
-          let ty = Math.max(y1, BODY_TOP) + 4
+          // The chip straddles the quadrant's top edge, over the gap between rows.
+          let ty = Math.max(y1 - 9, BODY_TOP + 2)
           while (chips.some((c) => Math.abs(c.y - ty) < 20 && tx < c.x + c.w && c.x < tx + tw)) ty += 22
           chips.push({ x: tx, y: ty, w: tw })
+          const chip = (q.showTitle !== false || isSelQ) && Math.min(x2, size.w) - tx > 30 && (
+            <g data-hit="quad" data-id={q.id} data-quadrant-chip={q.id} style={{ cursor: q.locked || q.mode === "auto" ? "pointer" : "move" }}>
+              <rect x={tx} y={ty} width={Math.min(tw, Math.max(40, Math.min(x2, size.w) - tx - 4))} height={18} rx={4} fill="#FFFFFF" fillOpacity={0.94} stroke={isSelQ ? C.selection : sc} strokeOpacity={isSelQ ? 1 : 0.55} />
+              <text x={tx + 8} y={ty + 12.5} fontSize={11} fontWeight={700} fill={ink}>{truncate(q.title, Math.min(x2, size.w) - tx - 20, 11)}</text>
+              <title>{`${q.title}${q.description ? ` — ${q.description}` : ""}\n${q.mode === "auto" ? "Automático (segue a regra e o cenário)" : "Manual (só destaque visual)"}${q.locked ? " · bloqueado" : ""}`}</title>
+            </g>
+          )
+          // Behind the bars: the fill and, for quadrants not selected, the title chip.
+          if (pass === "fill")
+            return (
+              <g key={q.id} data-quadrant={q.id}>
+                <rect x={x1} y={y1} width={Math.max(1, x2 - x1)} height={Math.max(1, y2 - y1)} fill={q.color} fillOpacity={q.opacity}
+                  stroke={q.stroke === "none" ? (isSelQ ? C.selection : "none") : sc} strokeOpacity={q.stroke === "none" ? 1 : 0.75} strokeWidth={isSelQ ? 2 : 1.2}
+                  strokeDasharray={q.stroke === "dashed" || (isSelQ && q.stroke === "none") ? "6 4" : undefined} pointerEvents="none" />
+                {!isSelQ && chip}
+              </g>
+            )
+          // Above the bars, only while selected: its chip and the edge handles, so it can be moved and resized.
+          if (!isSelQ) return null
           return (
-            <g key={q.id} data-quadrant={q.id}>
-              <rect x={x1} y={y1} width={Math.max(1, x2 - x1)} height={Math.max(1, y2 - y1)} fill={q.color} fillOpacity={q.opacity}
-                stroke={q.stroke === "none" ? (isSelQ ? C.selection : "none") : sc} strokeOpacity={q.stroke === "none" ? 1 : 0.75} strokeWidth={isSelQ ? 2 : 1.2}
-                strokeDasharray={q.stroke === "dashed" || (isSelQ && q.stroke === "none") ? "6 4" : undefined} pointerEvents="none" />
-              {(q.showTitle !== false || isSelQ) && Math.min(x2, size.w) - tx > 30 && (
-                <g data-hit="quad" data-id={q.id} style={{ cursor: q.locked || q.mode === "auto" ? "pointer" : "move" }}>
-                  <rect x={tx} y={ty} width={Math.min(tw, Math.max(40, Math.min(x2, size.w) - tx - 4))} height={18} rx={4} fill="#FFFFFF" fillOpacity={0.94} stroke={isSelQ ? C.selection : sc} strokeOpacity={isSelQ ? 1 : 0.55} />
-                  <text x={tx + 8} y={ty + 12.5} fontSize={11} fontWeight={700} fill={ink}>{truncate(q.title, Math.min(x2, size.w) - tx - 20, 11)}</text>
-                  <title>{`${q.title}${q.description ? ` — ${q.description}` : ""}\n${q.mode === "auto" ? "Automático (segue a regra e o cenário)" : "Manual (só destaque visual)"}${q.locked ? " · bloqueado" : ""}`}</title>
-                </g>
-              )}
-              {isSelQ && q.mode === "manual" && !q.locked && (
+            <g key={q.id} data-quadrant-chrome={q.id}>
+              {chip}
+              {q.mode === "manual" && !q.locked && (
                 <>
-                  <rect data-hit="quad-l" data-id={q.id} x={x1 - 5} y={y1} width={10} height={Math.max(1, y2 - y1)} fill="transparent" style={{ cursor: "ew-resize" }} />
-                  <rect data-hit="quad-r" data-id={q.id} x={x2 - 5} y={y1} width={10} height={Math.max(1, y2 - y1)} fill="transparent" style={{ cursor: "ew-resize" }} />
+                  <rect data-hit="quad-l" data-id={q.id} x={x1 - 4} y={y1} width={8} height={Math.max(1, y2 - y1)} fill="transparent" style={{ cursor: "ew-resize" }} />
+                  <rect data-hit="quad-r" data-id={q.id} x={x2 - 4} y={y1} width={8} height={Math.max(1, y2 - y1)} fill="transparent" style={{ cursor: "ew-resize" }} />
                   <rect x={x1 - 3} y={(y1 + y2) / 2 - 12} width={6} height={24} rx={2} fill="#FFFFFF" stroke={C.selection} strokeWidth={1.5} pointerEvents="none" />
                   <rect x={x2 - 3} y={(y1 + y2) / 2 - 12} width={6} height={24} rx={2} fill="#FFFFFF" stroke={C.selection} strokeWidth={1.5} pointerEvents="none" />
                 </>

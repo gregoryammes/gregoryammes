@@ -5,6 +5,10 @@ import { steps } from "./v8"
  * V18 additions — idempotent. Records only what the V18 briefing states. Dates the briefing gives
  * only as a year are drawn as approximate periods (`dateUndetermined`), never pinned to a day.
  * Values the briefing gives are "informed", not proven: proof stays "pendente".
+ *
+ * Conservative on saved documents: a record is reshaped only while it still holds the pre-V18 seed
+ * values (`prior`); a record the user edited is left as it is. Notes are appended, never replaced,
+ * and nothing that already exists for an action (acquisition, payment) is added a second time.
  */
 export const SRC_V18 = "src-briefing-v18"
 export const SCENARIO_TEC_2027 = "cen-tecnico-2027"
@@ -45,6 +49,8 @@ const NEW_ITEMS: Item[] = [
   }),
   base({
     id: "rob-2026", name: "Robótica 2026", shortName: "Robótica 2026", kind: "atividade", projectId: "p2", modality: "robotica", start: "2026-03-14", end: "2026-12-31", precision: "day",
+    // The start is informed; the end is not — the whole period reads as approximate until it is.
+    dateUndetermined: true,
     notes: "Início informado: 14/03/2026. Término não informado — dez/2026 é referência pelo nome da turma, a validar. Pagamentos mensais ao SENAI.",
   }),
   base({
@@ -116,46 +122,72 @@ export const SEED_QUADRANTS: Quadrant[] = [
 
 const unchanged = (it: Item | undefined, start: string, end: string) => !!it && it.start === start && it.end === end && !(it.revisions ?? []).length
 
-export function applyV18(d: StudioDoc): StudioDoc {
+/** Fields V18 may rewrite on a seed record: if any differs from the pre-V18 seed, the user edited it. */
+const RESHAPED: (keyof Item)[] = ["name", "shortName", "kind", "certainty", "notes", "start", "end", "precision", "dateUndetermined", "turmaIds", "courseId", "conditions", "projectId"]
+const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+const appendNote = (cur: string | undefined, add: string) => (cur?.includes(add) ? cur : `${cur ? `${cur} ` : ""}${add}`)
+
+/**
+ * @param prior the pre-V18 seed (createSeedV11) when migrating a saved document; omitted when the
+ * seed itself is being built (then every record is pristine by construction).
+ */
+export function applyV18(d: StudioDoc, prior?: StudioDoc): StudioDoc {
   const byId = new Map(d.items.map((i) => [i.id, i]))
+  const priorById = prior ? new Map(prior.items.map((i) => [i.id, i])) : null
+  const pristine = (it: Item | undefined) => {
+    if (!it || (it.revisions ?? []).length) return false
+    if (!priorById) return true
+    const p = priorById.get(it.id)
+    return !!p && RESHAPED.every((k) => same(it[k], p[k]))
+  }
+  // Técnico futuro: the move to 2028–2029, its bolsas, its turmas and the 2027–2028 scenario go
+  // together — all of them or none (a user-edited T2 stays as the user left it).
+  const t2 = byId.get("t2")
+  const t2b = byId.get("t2-bolsas")
+  const tt27 = (d.turmas ?? []).find((t) => t.id === "turma-tec-2027")
+  const moveT2 = !!t2 && unchanged(t2, "2027-02-01", "2028-12-31") && pristine(t2) &&
+    (!t2b || (unchanged(t2b, "2027-02-01", "2028-12-31") && pristine(t2b))) && (!tt27 || tt27.offeringId === "t2")
   const items = d.items.map((it): Item => {
     let n = it
     switch (it.id) {
       case "p1-ciclo":
-        if (it.certainty === "a_validar") n = { ...n, certainty: "executado", notes: `${it.notes ? `${it.notes} ` : ""}Situação informada no briefing V18: concluído.` }
+        if (it.certainty === "a_validar") n = { ...n, certainty: "executado", notes: appendNote(it.notes, "Situação informada no briefing V18: concluído.") }
         break
       case "p1-jornada":
-        if (unchanged(it, "2023-01-01", "2025-12-31"))
+        if (unchanged(it, "2023-01-01", "2025-12-31") && pristine(it))
           n = { ...n, name: "1ª Jornada Tecnológica", shortName: "1ª Jornada", certainty: "executado", ...year(2023), notes: NOTE_P1,
             revisions: [rev("end", it.end, "2023-12-31", "O briefing V18 detalha as edições: 1ª Jornada em 2023 (as demais têm registro próprio).")] }
         break
       case "p1-robotica":
-        if (unchanged(it, "2023-01-01", "2025-12-31"))
+        if (unchanged(it, "2023-01-01", "2025-12-31") && pristine(it))
           n = { ...n, name: "Robótica 2024", shortName: "Robótica 2024", certainty: "executado", ...year(2024), notes: NOTE_P1,
             revisions: [rev("start", it.start, "2024-01-01", "Briefing V18: Robótica 2024."), rev("end", it.end, "2024-12-31", "Briefing V18: Robótica 2024.")] }
         break
       case "p1-tecnico":
-        if (unchanged(it, "2023-01-01", "2025-12-31"))
+        if (unchanged(it, "2023-01-01", "2025-12-31") && pristine(it))
           n = { ...n, kind: "curso", name: "Curso Técnico — Turma 2024–2025", shortName: "Técnico 2024–2025", certainty: "executado", start: "2024-01-01", end: "2025-12-31",
             precision: "year", dateUndetermined: true, courseId: "curso-tecnico", turmaIds: ["turma-tec-2024"], notes: NOTE_P1,
             revisions: [rev("start", it.start, "2024-01-01", "Briefing V18: Curso Técnico — turma 2024–2025 (dois anos, uma única aquisição).")] }
         break
       case "p1-infra":
-        if (it.shortName === "Infraestrutura" || it.shortName === undefined) n = { ...n, shortName: "Laboratório de informática", certainty: it.certainty === "a_validar" ? "executado" : it.certainty, notes: `${it.notes ?? ""} Briefing V18: laboratório de informática do Projeto 1 (a conciliar com este registro de infraestrutura).`.trim() }
+        if ((it.shortName === "Infraestrutura" || it.shortName === undefined) && pristine(it))
+          n = { ...n, shortName: "Laboratório de informática", certainty: it.certainty === "a_validar" ? "executado" : it.certainty, notes: appendNote(it.notes, "Briefing V18: laboratório de informática do Projeto 1 (a conciliar com este registro de infraestrutura).") }
         break
       case "t1-bolsas":
-        if (!/unidades curriculares/.test(it.conditions ?? "")) n = { ...n, conditions: `${it.conditions ? `${it.conditions} ` : ""}Pagas conforme critérios de frequência e unidades curriculares (briefing V18).` }
+        if (!/unidades curriculares/.test(it.conditions ?? "")) n = { ...n, conditions: appendNote(it.conditions, "Pagas conforme critérios de frequência e unidades curriculares (briefing V18).") }
         break
       case "t2":
         // Most recent planning: turma 2028–2029. The earlier 2027–2028 version is kept as its own scenario.
-        if (unchanged(it, "2027-02-01", "2028-12-31"))
+        if (moveT2)
           n = { ...n, shortName: it.shortName ?? "Técnico 2", start: "2028-01-01", end: "2029-12-31", precision: "year", dateUndetermined: true, turmaIds: ["turma-tec-2028"],
             notes: "Planejamento mais recente (briefing V18): turma proposta para 2028–2029. Aquisição ainda não decidida; formato discutido com o SENAI: pagamento único e NF única. A versão 2027–2028 dos registros anteriores está no cenário próprio.",
             revisions: [rev("start", it.start, "2028-01-01", "Briefing V18: turma proposta para 2028–2029 no planejamento mais recente."), rev("end", it.end, "2029-12-31", "Briefing V18: turma proposta para 2028–2029.")] }
         break
       case "t2-bolsas":
-        if (unchanged(it, "2027-02-01", "2028-12-31"))
+        if (moveT2)
           n = { ...n, start: "2028-01-01", end: "2029-12-31", precision: "year", dateUndetermined: true,
+            // the bolsas follow their turma: 2027–2028 stays with the scenario, 2028–2029 is the baseline one
+            ...(it.turmaIds ? { turmaIds: [...new Set(it.turmaIds.map((x) => (x === "turma-tec-2027" ? "turma-tec-2028" : x)))] } : {}),
             revisions: [rev("start", it.start, "2028-01-01", "Acompanha a turma 2028–2029."), rev("end", it.end, "2029-12-31", "Acompanha a turma 2028–2029.")] }
         break
     }
@@ -165,23 +197,44 @@ export function applyV18(d: StudioDoc): StudioDoc {
   const added = NEW_ITEMS.filter((i) => !ids.has(i.id))
   const allIds = new Set([...ids, ...added.map((i) => i.id)])
 
+  const t1AcqBefore = (d.finRecords ?? []).find((f) => f.id === "fin-t1-aquisicao")
   const fins = [...(d.finRecords ?? [])].map((f) =>
     f.id === "fin-t1-aquisicao" && f.contractValue == null
-      ? { ...f, contractValue: 298012, steps: (f.steps ?? []).map((s) => (s.id === "pagamento" && s.done && !s.date ? { ...s, evidence: "Pagamento antecipado informado em setembro/2025 (briefing V18)." } : s)), notes: "Aquisição informada: R$ 298.012, paga antecipadamente em setembro/2025 pelo Projeto 2 (briefing V18). Documentos comprobatórios a anexar. Não implica quitação das bolsas." }
+      ? {
+          ...f,
+          contractValue: 298012,
+          sourceIds: [...new Set([...(f.sourceIds ?? []), SRC_V18])],
+          steps: (f.steps ?? []).map((s) => (s.id === "pagamento" && s.done && !s.date && !s.evidence ? { ...s, evidence: "Pagamento antecipado informado em setembro/2025 (briefing V18)." } : s)),
+          notes: appendNote(f.notes, "Aquisição informada: R$ 298.012, paga antecipadamente em setembro/2025 pelo Projeto 2 (briefing V18). Documentos comprobatórios a anexar. Não implica quitação das bolsas."),
+        }
       : f,
   )
-  for (const f of NEW_FINS) if (!fins.some((x) => x.id === f.id) && allIds.has(f.actionId ?? "")) fins.push(f)
+  const hasAcq = (actionId: string | null | undefined) => fins.some((x) => x.kind === "aquisicao" && x.actionId === actionId)
+  const hasPayment = (acqId: string, actionId: string) => fins.some((x) => x.kind === "pagamento" && (x.parentId === acqId || (!x.parentId && x.actionId === actionId)))
+  for (const f of NEW_FINS) {
+    if (fins.some((x) => x.id === f.id) || !allIds.has(f.actionId ?? "")) continue
+    // One acquisition per action: a user-recorded one wins over the briefing's.
+    if (f.kind === "aquisicao" && hasAcq(f.actionId)) continue
+    if (f.id === "fin-t1-pagamento") {
+      // The advance payment is added only to the acquisition it belongs to, when that one is still
+      // marked paid, has no payment yet and carries no other contract value.
+      const ok = !!t1AcqBefore && t1AcqBefore.acqStatus === "integralmente_pago" && (t1AcqBefore.contractValue == null || t1AcqBefore.contractValue === 298012) && !hasPayment(t1AcqBefore.id, "t1")
+      if (!ok) continue
+    }
+    fins.push(f)
+  }
 
   const turmas = (d.turmas ?? []).map((t) =>
-    t.id === "turma-tec-2027" && t.offeringId === "t2" && byId.get("t2")?.start === "2027-02-01"
-      ? { ...t, offeringId: null, notes: `${t.notes ? `${t.notes} ` : ""}Versão dos registros anteriores (2027–2028), preservada no cenário “Técnico futuro — turma 2027–2028”.` }
+    t.id === "turma-tec-2027" && moveT2
+      ? { ...t, offeringId: null, notes: appendNote(t.notes, "Versão dos registros anteriores (2027–2028), preservada no cenário “Técnico futuro — turma 2027–2028”.") }
       : t,
   )
-  for (const t of TURMAS) if (!turmas.some((x) => x.id === t.id) && allIds.has(t.offeringId ?? "")) turmas.push(t)
+  const migrated = new Map([...items, ...added].map((i) => [i.id, i]))
+  // A new turma is added only next to the record that now points to it.
+  for (const t of TURMAS) if (!turmas.some((x) => x.id === t.id) && migrated.get(t.offeringId ?? "")?.turmaIds?.includes(t.id)) turmas.push(t)
 
   const scenarios: Scenario[] = [...d.scenarios]
-  const t2Before = byId.get("t2")
-  if (!scenarios.some((s) => s.id === SCENARIO_TEC_2027) && t2Before && t2Before.start === "2027-02-01")
+  if (!scenarios.some((s) => s.id === SCENARIO_TEC_2027) && moveT2)
     scenarios.push({
       id: SCENARIO_TEC_2027,
       name: "Técnico futuro — turma 2027–2028 (registros anteriores)",
@@ -189,7 +242,7 @@ export function applyV18(d: StudioDoc): StudioDoc {
       description: "Versão anterior do planejamento do Técnico futuro (turma 2027–2028), preservada como cenário distinto. Não representa contratação.",
       overrides: {
         t2: { start: "2027-02-01", end: "2028-12-31", precision: "month", dateUndetermined: false, turmaIds: ["turma-tec-2027"] },
-        "t2-bolsas": { start: "2027-02-01", end: "2028-12-31", precision: "month", dateUndetermined: false },
+        "t2-bolsas": { start: "2027-02-01", end: "2028-12-31", precision: "month", dateUndetermined: false, ...(t2b?.turmaIds?.includes("turma-tec-2027") ? { turmaIds: t2b.turmaIds } : {}) },
       },
       added: [],
       removed: [],

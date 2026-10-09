@@ -16,7 +16,7 @@ export const RANGE_PRESETS = [
 ] as const
 
 export const ZOOM_PRESETS = {
-  // Ruler levels: < 90 px/ano → só anos; 90–150 → anos e semestres; ≥ 150 → anos, semestres e meses.
+  // Ruler levels: < 120 px/ano → só anos; 120–150 → anos e semestres; ≥ 150 → anos, semestres e meses.
   anual: { label: "Anos", pxPerDay: 84 / 365 },
   semestral: { label: "Semestres", pxPerDay: 130 / 365 },
   trimestral: { label: "Trimestres", pxPerDay: 240 / 91 },

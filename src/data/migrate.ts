@@ -1,4 +1,4 @@
-import { createSeed } from "./seed"
+import { createSeed, createSeedV11 } from "./seed"
 import { applyV6 } from "./v6"
 import { applyV8 } from "./v8"
 import { applyV11 } from "./v11"
@@ -15,7 +15,7 @@ export function normalizeDoc(d: StudioDoc): StudioDoc {
   const v6 = (grouped.settings.modelVersion ?? 0) >= 6 ? grouped : applyV6(grouped)
   const v8 = (v6.settings.modelVersion ?? 0) >= 8 ? v6 : applyV8(v6)
   const v11 = (v8.settings.modelVersion ?? 0) >= 11 ? v8 : applyV11(v8)
-  return (v11.settings.modelVersion ?? 0) >= 18 ? v11 : applyV18(v11)
+  return (v11.settings.modelVersion ?? 0) >= 18 ? v11 : applyV18(v11, createSeedV11())
 }
 
 /** True when loading this document will change it (callers back it up first). */

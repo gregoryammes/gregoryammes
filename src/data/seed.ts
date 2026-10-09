@@ -51,7 +51,12 @@ const p1Action = (id: string, name: string, lane: number, layer: Item["layer"] =
   })
 
 export function createSeed(): StudioDoc {
-  return applyV18(applyV11(applyV8(applyV6(createSeedV5()))))
+  return applyV18(createSeedV11())
+}
+
+/** The seed as V11 shipped it — the reference V18 uses to tell untouched records from edited ones. */
+export function createSeedV11(): StudioDoc {
+  return applyV11(applyV8(applyV6(createSeedV5())))
 }
 
 function createSeedV5(): StudioDoc {

@@ -423,7 +423,7 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   addAnnotation: (a) => {
     get().commit("anotação", (d) => ({ ...d, annotations: [...d.annotations, a] }))
-    set({ selectedAnnotation: a.id, selection: [], selectedFin: null })
+    set({ selectedAnnotation: a.id, selection: [], selectedFin: null, selectedQuad: null })
   },
   patchAnnotation: (id, patch, live) => {
     const fn = (d: StudioDoc) => ({ ...d, annotations: d.annotations.map((a) => (a.id === id ? { ...a, ...patch } : a)) })
@@ -567,6 +567,9 @@ export const useStudio = create<StudioState>((set, get) => ({
     get().toast("Dados iniciais restaurados (é possível desfazer).", "info")
   },
 }))
+
+// The "restored" notice is created with the store, outside toast(): give it the same lifetime.
+for (const t of useStudio.getState().toasts) setTimeout(() => useStudio.getState().dismissToast(t.id), 5200)
 
 // Autosave: debounced, best effort, never blocks the UI.
 let saveTimer = 0

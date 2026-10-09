@@ -4,9 +4,12 @@ import { applyScenario } from "@/lib/analysis"
 import { financeStamp, finRecordsIn, acqOf } from "@/lib/finance"
 import { quadrantRange, quadrantRows, ruleRange, rowKey } from "@/lib/quadrants"
 import { computeModalities } from "@/lib/modalities"
-import { createSeed } from "@/data/seed"
-import { applyV18, SEED_QUADRANTS } from "@/data/v18"
+import { createSeed, createSeedV11 } from "@/data/seed"
+import { applyV18, SEED_QUADRANTS, SRC_V18 } from "@/data/v18"
 import { needsMigration, normalizeDoc } from "@/data/migrate"
+import { newFin } from "@/store/finance"
+import { deleteTurma, newTurmaFor, setItemTurmas } from "@/store/turmas"
+import { summarize } from "@/studio/FinanceColumn"
 import type { StudioDoc } from "@/data/types"
 import { deleteQuadrant, duplicateQuadrant, newQuadrant, patchQuadrant, shiftLayer, validQuadrant } from "@/store/quadrants"
 import { writeVisual } from "@/store/store"
@@ -58,6 +61,14 @@ describe("V18 — quadrantes", () => {
     expect(del.items).toBe(doc.items)
     expect(del.finRecords).toBe(doc.finRecords)
     expect(validQuadrant({ ...q, mode: "auto", rule: undefined })).toMatch(/regra/)
+    // no-op edits return the same document (no undo entry); a locked quadrant keeps its place
+    expect(patchQuadrant(d2, id, { color: "#8870B5" })).toBe(d2)
+    expect(deleteQuadrant(d2, "nao-existe")).toBe(d2)
+    const locked = patchQuadrant(d2, id, { locked: true })
+    expect(patchQuadrant(locked, id, { start: "2024-06-01" })).toBe(locked)
+    expect(patchQuadrant(locked, id, { mode: "auto", rule: { kind: "project_period", projectId: "p3" } })).toBe(locked)
+    expect(patchQuadrant(locked, id, { color: "#19885D" }).quadrants!.find((x) => x.id === id)!.color).toBe("#19885D")
+    expect(patchQuadrant(locked, id, { locked: false, start: "2024-06-01" }).quadrants!.find((x) => x.id === id)!.start).toBe("2024-06-01")
   })
 
   it("as linhas do quadrante são ancoradas pela chave da linha, não pela posição", () => {
@@ -116,22 +127,81 @@ describe("V18 — dados e migração", () => {
     expect(doc.scenarios.some((s) => s.id === "cen-tecnico-2027")).toBe(true)
   })
 
-  it("migra um documento V11 uma única vez, preservando IDs e sem duplicar registros", () => {
-    const seed = createSeed()
-    const v11: StudioDoc = { ...seed, quadrants: undefined, settings: { ...seed.settings, modelVersion: 11 } }
+  it("migra o documento V11 de fábrica para exatamente o seed V18, uma única vez", () => {
+    const v11 = createSeedV11()
+    expect(v11.settings.modelVersion).toBe(11)
     expect(needsMigration(v11)).toBe(true)
     const m = normalizeDoc(v11)
+    const seed = createSeed()
     expect(m.settings.modelVersion).toBe(18)
+    expect(m.items).toEqual(seed.items)
+    expect(m.finRecords).toEqual(seed.finRecords)
+    expect(m.turmas).toEqual(seed.turmas)
+    expect(m.scenarios).toEqual(seed.scenarios)
+    expect(m.quadrants!.map((q) => q.id)).toEqual(["q-apos-vigencia-p2", "q-projeto3"])
+    // IDs preserved, none duplicated; a second pass changes nothing.
     expect(m.items.map((i) => i.id)).toEqual(expect.arrayContaining(v11.items.map((i) => i.id)))
     expect(new Set(m.items.map((i) => i.id)).size).toBe(m.items.length)
     expect(new Set(m.finRecords!.map((f) => f.id)).size).toBe(m.finRecords!.length)
-    expect(m.quadrants!.map((q) => q.id)).toEqual(["q-apos-vigencia-p2", "q-projeto3"])
     expect(normalizeDoc(m)).toBe(m)
-    // Running the step again changes nothing: it is idempotent.
-    const again = applyV18({ ...m, settings: { ...m.settings, modelVersion: 11 } })
-    expect(again.items.length).toBe(m.items.length)
-    expect(again.finRecords!.length).toBe(m.finRecords!.length)
-    expect(again.quadrants!.length).toBe(m.quadrants!.length)
+    const again = applyV18({ ...m, settings: { ...m.settings, modelVersion: 11 } }, createSeedV11())
+    expect(again.items).toEqual(m.items)
+    expect(again.finRecords).toEqual(m.finRecords)
+    expect(again.turmas).toEqual(m.turmas)
+  })
+
+  it("um registro editado pelo usuário não é remodelado (nome, notas, certeza, tipo)", () => {
+    const v11 = createSeedV11()
+    const edited: StudioDoc = { ...v11, items: v11.items.map((i) => (i.id === "p1-tecnico" ? { ...i, name: "Curso Técnico Piloto — Informática", notes: "minha nota" } : i)) }
+    const before = edited.items.find((i) => i.id === "p1-tecnico")!
+    const m = normalizeDoc(edited)
+    const after = m.items.find((i) => i.id === "p1-tecnico")!
+    expect(after).toEqual(before)
+    // its turma is not created either: nothing would point to it
+    expect(m.turmas!.some((t) => t.id === "turma-tec-2024")).toBe(false)
+  })
+
+  it("não duplica o pagamento antecipado do Técnico 1 nem as aquisições do P1 já cadastradas", () => {
+    let v11 = createSeedV11()
+    const t1 = v11.items.find((i) => i.id === "t1")!
+    v11 = newFin(v11, "pagamento", t1, { parentId: "fin-t1-aquisicao", realized: true, value: 298012, start: "2025-09-15", end: "2025-09-15" }).doc
+    v11 = newFin(v11, "aquisicao", v11.items.find((i) => i.id === "p1-robotica")!, { acqStatus: "integralmente_pago" }).doc
+    const m = normalizeDoc(v11)
+    const pays = m.finRecords!.filter((f) => f.kind === "pagamento" && f.parentId === "fin-t1-aquisicao")
+    expect(pays).toHaveLength(1)
+    expect(summarize(m.finRecords!, new Set(["t1", "t1-bolsas"]))).toMatchObject({ contracted: 298012, paid: 298012, balance: 0 })
+    expect(m.finRecords!.filter((f) => f.kind === "aquisicao" && f.actionId === "p1-robotica")).toHaveLength(1)
+    // the T1 contract value is credited to the V18 briefing, and the user's notes are kept
+    expect(m.finRecords!.find((f) => f.id === "fin-t1-aquisicao")!.sourceIds).toContain(SRC_V18)
+  })
+
+  it("Técnico futuro: tudo ou nada — com o T2 editado, nada do T2 é movido", () => {
+    const v11 = createSeedV11()
+    const edited: StudioDoc = { ...v11, items: v11.items.map((i) => (i.id === "t2" ? { ...i, end: "2028-06-30" } : i)) }
+    const m = normalizeDoc(edited)
+    expect(m.items.find((i) => i.id === "t2")).toEqual(edited.items.find((i) => i.id === "t2"))
+    expect(m.items.find((i) => i.id === "t2-bolsas")).toEqual(edited.items.find((i) => i.id === "t2-bolsas"))
+    expect(m.scenarios.some((s) => s.id === "cen-tecnico-2027")).toBe(false)
+    expect(m.turmas!.find((t) => t.id === "turma-tec-2027")!.offeringId).toBe("t2")
+    expect(m.turmas!.some((t) => t.id === "turma-tec-2028")).toBe(false)
+  })
+
+  it("as bolsas do T2 seguem a turma: 2028–2029 na base, 2027–2028 no cenário próprio", () => {
+    const doc = createSeed()
+    expect(doc.items.find((i) => i.id === "t2-bolsas")!.turmaIds).toEqual(["turma-tec-2028"])
+    const sc = applyScenario(doc, "cen-tecnico-2027")
+    expect(sc.find((i) => i.id === "t2-bolsas")).toMatchObject({ start: "2027-02-01", turmaIds: ["turma-tec-2027"] })
+  })
+
+  it("vincular turma dentro do cenário 2027–2028 não reescreve a linha de base", () => {
+    const doc = createSeed()
+    const t = newTurmaFor(doc, doc.items.find((i) => i.id === "t2")!, "cen-tecnico-2027")
+    expect(t.doc.items.find((i) => i.id === "t2")!.turmaIds).toEqual(["turma-tec-2028"])
+    expect(t.doc.scenarios.find((s) => s.id === "cen-tecnico-2027")!.overrides.t2.turmaIds).toEqual(["turma-tec-2027", t.id])
+    const del = deleteTurma(t.doc, "turma-tec-2027")
+    expect(del.scenarios.find((s) => s.id === "cen-tecnico-2027")!.overrides.t2.turmaIds).toEqual([t.id])
+    // outside a scenario that sets turmas, the record itself is edited
+    expect(setItemTurmas(doc, "t1", (cur) => [...cur, "x"], "baseline").items.find((i) => i.id === "t1")!.turmaIds).toContain("x")
   })
 
   it("não sobrescreve quadrantes nem datas editadas pelo usuário", () => {
