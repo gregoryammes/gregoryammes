@@ -9,7 +9,7 @@ import { docVigRange, offeringLabel, shortNameOf } from "@/lib/v6"
 import { useStudio } from "@/store/store"
 import { useEffectiveItems } from "@/store/hooks"
 import type { EffItem } from "@/lib/analysis"
-import type { FinRecord } from "@/data/types"
+import { ACQ_STATUS_LABEL, type FinRecord } from "@/data/types"
 import { Movable, SceneNotes, SceneTitle } from "./Stage"
 import { StageAxis, stageScale } from "./common"
 
@@ -199,7 +199,8 @@ function Synthesis({ c, items, fins, ref_, vig, shown }: { c: EffItem; items: Ef
   else if (acq.acqStatus === "em_negociacao" && neg?.done) {
     lines.push(`Negociação concluída${neg.date ? ` em ${fmtDate(neg.date)}` : ""}, conforme registro${acq.supplier ? ` (${acq.supplier})` : ""}.`)
     lines.push("Formalização da compra a confirmar.")
-  } else lines.push(`Aquisição: ${acq.acqStatus === "contratado" ? "contratada" : acq.acqStatus === "parcialmente_pago" ? "parcialmente paga" : acq.acqStatus === "em_negociacao" ? "em negociação" : "prevista"}, conforme registros.`)
+  } else if (acq.acqStatus === "cotacao") lines.push("Cotação recebida — contratação pendente, conforme registros.")
+  else lines.push(`Aquisição: ${acq.acqStatus === "contratado" ? "contratada" : acq.acqStatus === "parcialmente_pago" ? "parcialmente paga" : acq.acqStatus === "em_negociacao" ? "em negociação" : "prevista"}, conforme registros.`)
   if (info.bolsas.length) lines.push(info.bolsas.every((b) => b.certainty === "hipotese" || b.certainty === "planejado") ? "Bolsas futuras a planejar." : "Bolsas estudantis vinculadas.")
   if (after) lines.push(`Formação posterior à vigência de referência: ${calendarMonthsTouched(after)} meses (${fmtMonthsSpan(after)}).`)
   return (
@@ -258,7 +259,7 @@ function SubRows({ c, top, revealed, items, fins, clampX, vig }: {
           ))}
           {pays.map((p) => marker(p, 25))}
           <text x={Math.max(clampX(c.range.start), ...pays.map((p) => clampX(finRange(p)?.end ?? 0) + 330), ...dated.map((s) => clampX(toDay(s.date!)) + 230))} y={31} fontSize={17} fontWeight={700} fill={acq?.acqStatus === "integralmente_pago" ? C.paid : "#9A4A08"}>
-            {acq ? `${acq.acqStatus === "integralmente_pago" ? "Paga (registro)" : acq.acqStatus === "em_negociacao" ? "Compra a formalizar" : acq.acqStatus}${total != null ? ` · ${total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : " · valor não informado"}${acq.proof === "pendente" ? " · comprovação pendente" : ""}` : "Pagamento a validar"}
+            {acq ? `${acq.acqStatus === "integralmente_pago" ? "Paga (registro)" : acq.acqStatus === "em_negociacao" ? "Compra a formalizar" : ACQ_STATUS_LABEL[acq.acqStatus ?? "planejado"]}${total != null ? ` · ${total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : " · valor não informado"}${acq.proof === "pendente" ? " · comprovação pendente" : ""}` : "Pagamento a validar"}
           </text>
         </>
       ),

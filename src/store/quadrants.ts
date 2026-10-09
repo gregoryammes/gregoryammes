@@ -34,8 +34,9 @@ export function patchQuadrant(d: StudioDoc, id: string, patch: Partial<Quadrant>
   const cur = list(d).find((q) => q.id === id)
   if (!cur) return d
   const keys = Object.keys(patch) as (keyof Quadrant)[]
-  // Nothing changes → same document (no undo entry, redo kept).
-  if (keys.every((k) => JSON.stringify(cur[k]) === JSON.stringify(patch[k]))) return d
+  // Nothing changes → same document (no undo entry, redo kept). The outline colour is compared as drawn.
+  const now = { ...cur, strokeColor: cur.strokeColor ?? cur.color }
+  if (keys.every((k) => JSON.stringify(now[k]) === JSON.stringify(patch[k]))) return d
   if (cur.locked && patch.locked !== false && keys.some((k) => PLACEMENT.includes(k) && JSON.stringify(cur[k]) !== JSON.stringify(patch[k]))) return d
   const next = { ...cur, ...patch }
   if (validQuadrant(next)) return d

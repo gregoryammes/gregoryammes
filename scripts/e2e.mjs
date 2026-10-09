@@ -712,16 +712,16 @@ const hiddenBolsas = (await page.locator('#timeline-svg rect[data-hit=item][data
 ok("V18-2 três linhas de formação (Jornada, Robótica, Cursos Técnicos); Bolsas e Operação recolhidas", oneLine(jor) && oneLine(rob) && oneLine(tec) && new Set([jor[0], rob[0], tec[0]]).size === 3 && ["bolsas", "operacao"].every((m) => v18.collapsed.includes(m)) && hiddenBolsas, JSON.stringify({ jor: jor[0], rob: rob[0], tec: tec[0] }))
 
 // V18-3 carimbo financeiro lido dos registros
-const stamps = await SV(() => Object.fromEntries([...document.querySelectorAll("#timeline-svg [data-stamp]")].map((g) => [g.dataset.stamp, g.querySelector("text").textContent])))
+const stamps = await SV(() => Object.fromEntries([...document.querySelectorAll("#timeline-svg [data-stamp]")].map((g) => [g.dataset.stamp, g.dataset.stampLabel])))
 ok("V18-3 carimbo do projeto financiador (P1 · Pago, P2 · Pago, P2 · Parcelas, Cotação, A contratar, Financiamento a definir)",
   stamps["p1-tecnico"] === "P1 · Pago" && stamps["t1"] === "P2 · Pago" && stamps["rob-2026"] === "P2 · Parcelas" && stamps["rob-2027"] === "Cotação" && stamps["t2"] === "A contratar" && stamps["jornada-2025"] === "Financiamento a definir", JSON.stringify(stamps))
 // The stamp follows the record, not the bar: change the funding of the T1 acquisition and the stamp changes.
 await page.evaluate(() => { const s = window.__studio.getState(); s.commit("teste carimbo", (d) => ({ ...d, finRecords: d.finRecords.map((f) => (f.id === "fin-t1-aquisicao" ? { ...f, fundingProjectId: "p1" } : f)) })) })
 await page.waitForTimeout(200)
-const stampP1 = await page.locator('#timeline-svg [data-stamp="t1"] text').textContent()
+const stampP1 = await page.locator('#timeline-svg [data-stamp="t1"]').getAttribute("data-stamp-label")
 await page.keyboard.press("Control+z")
 await page.waitForTimeout(150)
-ok("V18-3 carimbo segue o registro financeiro (e o desfazer)", stampP1 === "P1 · Pago" && (await page.locator('#timeline-svg [data-stamp="t1"] text').textContent()) === "P2 · Pago", stampP1)
+ok("V18-3 carimbo segue o registro financeiro (e o desfazer)", stampP1 === "P1 · Pago" && (await page.locator('#timeline-svg [data-stamp="t1"]').getAttribute("data-stamp-label")) === "P2 · Pago", stampP1)
 
 // V18-4 curso técnico de dois anos como barra contínua
 const t1Bars = await page.locator('#timeline-svg rect[data-hit=item][data-id="t1"]').count()
@@ -785,6 +785,8 @@ await panel.getByLabel("Título do quadrante").blur()
 await panel.getByRole("button", { name: /^Cor Roxo/ }).click()
 await panel.getByLabel("Início do quadrante").fill("2024-03-01")
 await panel.getByLabel("Fim do quadrante").fill("2025-10-31")
+// dates commit when the field is left (Enter), never on each typed digit
+await panel.getByLabel("Fim do quadrante").press("Enter")
 await panel.getByLabel("Contorno do quadrante", { exact: true }).selectOption("dashed")
 await page.waitForTimeout(200)
 const q8 = await SV((id) => window.__studio.getState().doc.quadrants.find((x) => x.id === id), q7?.id)

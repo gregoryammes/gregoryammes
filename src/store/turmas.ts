@@ -17,6 +17,10 @@ function mapAllItems(d: StudioDoc, fn: (i: Item) => Item): StudioDoc {
  * "turma 2027–2028" version of T2, for instance), otherwise on the record itself. Editing the list
  * in such a scenario never rewrites the documental baseline.
  */
+/** True when the scenario keeps its own turma list for this record (edits stay in the scenario). */
+export const scenarioSetsTurmas = (d: StudioDoc, scenarioId: string | null | undefined, itemId: string) =>
+  !!scenarioId && !!d.scenarios.find((s) => s.id === scenarioId)?.overrides[itemId]?.turmaIds
+
 function withTurmaIds(d: StudioDoc, itemId: string, scenarioId: string | null | undefined, fn: (ids: string[]) => string[]): StudioDoc {
   const sc = scenarioId ? d.scenarios.find((s) => s.id === scenarioId) : undefined
   const ov = sc?.overrides[itemId]

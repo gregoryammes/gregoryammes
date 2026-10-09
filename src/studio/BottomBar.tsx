@@ -37,7 +37,7 @@ export function CanvasToolbar() {
       ))}
       <span className="mx-1 h-5 w-px bg-border" />
       <select aria-label="Zoom" title="Zoom — muda só a escala, nunca as datas" className="rounded border bg-white px-1.5 py-1 text-xs text-foreground" value=""
-        onChange={(e) => { const z = ZOOM_PRESETS[e.target.value as keyof typeof ZOOM_PRESETS]; if (z) { view.setZoom(z.pxPerDay); view.set({ range: null }) } }}>
+        onChange={(e) => { const z = ZOOM_PRESETS[e.target.value as keyof typeof ZOOM_PRESETS]; if (z) { view.setZoom(z.pxPerDay, e.target.value === "anual" ? "year" : e.target.value === "semestral" ? "sem" : null); view.set({ range: null }) } }}>
         <option value="">Zoom…</option>
         {Object.entries(ZOOM_PRESETS).map(([k, z]) => <option key={k} value={k}>{z.label}</option>)}
       </select>

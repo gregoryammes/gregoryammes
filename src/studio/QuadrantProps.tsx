@@ -36,10 +36,9 @@ function Text({ value, onCommit, label, multiline }: { value: string; onCommit: 
 function QuadDates({ q, disabled, onCommit }: { q: Quadrant; disabled?: boolean; onCommit: (start: string, end: string) => void }) {
   const [a, setA] = useState(q.start)
   const [b, setB] = useState(q.end)
-  useEffect(() => {
-    setA(q.start)
-    setB(q.end)
-  }, [q.start, q.end])
+  // Each field follows only its own value: saving the start never resets an end being typed.
+  useEffect(() => setA(q.start), [q.start])
+  useEffect(() => setB(q.end), [q.end])
   const commit = () => {
     if (!isValidISO(a) || !isValidISO(b)) {
       setA(q.start)

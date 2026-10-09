@@ -70,10 +70,12 @@ interface ViewState {
   indicatorsOpen: boolean
   /** Year range last applied from the header (null after free zoom/pan). */
   range: { from: number; to: number } | null
+  /** Ruler level chosen by a zoom preset (Anos → only years, Semestres → no months); cleared by free zoom. */
+  rulerMax: "year" | "sem" | null
   setRange: (from: number, to: number) => void
   set: (p: Partial<ViewState>) => void
   zoomAt: (factor: number, anchorPx?: number) => void
-  setZoom: (ppd: number) => void
+  setZoom: (ppd: number, level?: "year" | "sem" | null) => void
   fit: (start: number, end: number) => void
   centerOn: (start: number, end: number) => void
 }
@@ -131,6 +133,7 @@ export const useView = create<ViewState>((set, get) => ({
   sidebarOpen: true,
   indicatorsOpen: false,
   range: { from: 2023, to: 2030 },
+  rulerMax: null,
   setRange: (from, to) => {
     set({ range: { from, to } })
     get().fit(dayOf(from, 1), dayOf(to + 1, 1))
@@ -143,14 +146,17 @@ export const useView = create<ViewState>((set, get) => ({
     const anchorDay = x0 + a / pxPerDay
     const next = clampPpd(pxPerDay * factor, width)
     // Keep the date under the cursor fixed: zoom never shifts alignment.
-    set({ pxPerDay: next, x0: anchorDay - a / next })
+    set({ pxPerDay: next, x0: anchorDay - a / next, rulerMax: null })
   },
-  setZoom: (ppd) => get().zoomAt(ppd / get().pxPerDay),
+  setZoom: (ppd, level = null) => {
+    get().zoomAt(ppd / get().pxPerDay)
+    set({ rulerMax: level })
+  },
   fit: (start, end) => {
     const w = get().width
     const pad = (end - start) * 0.006
     const ppd = clampPpd(w / (end - start + pad * 2), w)
-    set({ pxPerDay: ppd, x0: start - pad })
+    set({ pxPerDay: ppd, x0: start - pad, rulerMax: null })
   },
   centerOn: (start, end) => {
     const { width, pxPerDay } = get()

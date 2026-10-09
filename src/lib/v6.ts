@@ -33,11 +33,17 @@ export function temporalSituation(range: DayRange, vig: DayRange | null, undeter
 const DOCUMENTED: Certainty[] = ["comprovado", "formalizado", "executado"]
 export const isDocumented = (c?: Certainty) => !!c && DOCUMENTED.includes(c)
 
-/** Turmas of an offering: the explicit links when there are any (a scenario may point to another version), otherwise the turmas that name it. */
+/**
+ * Turmas of an offering: its explicit list when it has one — even an empty one (a scenario may point
+ * to another version, or to none) — otherwise the turmas that name it.
+ */
 export const turmasOf = (doc: StudioDoc, it: Pick<Item, "id" | "turmaIds">): Turma[] => {
-  const ids = new Set(it.turmaIds ?? [])
   const all = doc.turmas ?? []
-  return ids.size ? all.filter((t) => ids.has(t.id)) : all.filter((t) => t.offeringId === it.id)
+  if (it.turmaIds) {
+    const ids = new Set(it.turmaIds)
+    return all.filter((t) => ids.has(t.id))
+  }
+  return all.filter((t) => t.offeringId === it.id)
 }
 
 export const turmaShort = (t: Turma) => t.name.replace(/^Turma\s+(Técnico\s+)?/i, "Turma ")

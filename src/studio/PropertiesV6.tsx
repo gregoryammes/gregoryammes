@@ -9,7 +9,7 @@ import { CERTAINTY_LABEL, FIN_LABEL, type Certainty, type FinSituation, type Tur
 import { useStudio } from "@/store/store"
 import { useAnalysis } from "@/store/hooks"
 import { useView } from "@/store/view"
-import { deleteTurma, newTurmaFor, patchTurma, setItemTurmas } from "@/store/turmas"
+import { deleteTurma, newTurmaFor, patchTurma, scenarioSetsTurmas, setItemTurmas } from "@/store/turmas"
 
 const CERTAINTIES = Object.keys(CERTAINTY_LABEL) as Certainty[]
 const FINS = Object.keys(FIN_LABEL) as FinSituation[]
@@ -162,7 +162,11 @@ export function CourseTurmaSection({ it }: { it: EffItem }) {
               value=""
               onChange={(e) => {
                 const id = e.target.value
-                if (id) st.commit("vincular turma", (d) => patchTurma(setItemTurmas(d, it.id, (cur) => [...new Set([...cur, id])], st.scenarioId), id, { offeringId: it.id }))
+                if (!id) return
+                // In a scenario that sets this course's turmas, the link stays in the scenario: the
+                // turma's own offering (a documental fact) is not touched.
+                if (scenarioSetsTurmas(st.doc, st.scenarioId, it.id)) st.commit("vincular turma (cenário)", (d) => setItemTurmas(d, it.id, (cur) => [...new Set([...cur, id])], st.scenarioId))
+                else st.commit("vincular turma", (d) => patchTurma(setItemTurmas(d, it.id, (cur) => [...new Set([...cur, id])], st.scenarioId), id, { offeringId: it.id }))
               }}
             >
               <option value="">Vincular existente…</option>
@@ -259,7 +263,10 @@ function TurmaEditor({ t, open, onToggle, offeringId }: { t: Turma; open: boolea
             <textarea className="field min-h-[48px]" value={draft.notes ?? ""} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} onBlur={() => draft.notes !== t.notes && save({ notes: draft.notes })} />
           </label>
           <div className="flex justify-between">
-            <Button size="sm" variant="ghost" onClick={() => st.commit("desvincular turma", (d) => setItemTurmas(patchTurma(d, t.id, { offeringId: null }), offeringId, (cur) => cur.filter((x) => x !== t.id), st.scenarioId))}>
+            <Button size="sm" variant="ghost" onClick={() =>
+              scenarioSetsTurmas(st.doc, st.scenarioId, offeringId)
+                ? st.commit("desvincular turma (cenário)", (d) => setItemTurmas(d, offeringId, (cur) => cur.filter((x) => x !== t.id), st.scenarioId))
+                : st.commit("desvincular turma", (d) => setItemTurmas(patchTurma(d, t.id, { offeringId: null }), offeringId, (cur) => cur.filter((x) => x !== t.id), st.scenarioId))}>
               Desvincular
             </Button>
             <Button size="sm" variant="danger" onClick={async () => (await confirmAction(`Excluir a turma “${t.name}”? Os vínculos serão removidos (é possível desfazer).`)) && st.commit("excluir turma", (d) => deleteTurma(d, t.id))}>

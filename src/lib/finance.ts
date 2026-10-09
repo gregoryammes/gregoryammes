@@ -29,6 +29,8 @@ export interface Tag {
   label: string
   tone: TagTone
   title?: string
+  /** Compact form (stamps on narrow bars). */
+  short?: string
 }
 
 const stepDone = (a: FinRecord, id: string) => !!a.steps?.find((s) => s.id === id)?.done
@@ -78,35 +80,41 @@ export function acqWarnings(fins: FinRecord[], a: FinRecord): string[] {
  * Carimbo financeiro: who funds the acquisition and in what state, read from the linked financial
  * records only — never from the bar colour, the project row or the course status.
  */
-export type StampTone = "paid" | "parcelas" | "contracted" | "quote" | "tocontract" | "undefined" | "proposal" | "validate"
+export type StampTone = "paid" | "partial" | "parcelas" | "contracted" | "quote" | "tocontract" | "undefined" | "proposal" | "validate"
 export interface Stamp {
   label: string
+  /** Compact form for a bar narrower than the label. */
+  short: string
   tone: StampTone
   title: string
 }
 
 export function financeStamp(action: Pick<Item, "projectId" | "certainty">, acq: FinRecord | undefined, projectShort: (id: string | null | undefined) => string | null): Stamp {
   const fund = acq ? projectShort(acq.fundingProjectId) : null
+  const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+  const proof = acq?.proof === "pendente" ? " — comprovação pendente" : ""
   if (!acq) {
-    if (action.projectId === "p3") return { label: "P3 · Proposta", tone: "proposal", title: "Proposta do Projeto 3 em modelagem — sem aquisição nem aprovação." }
+    if (action.projectId === "p3") return { label: "P3 · Proposta", short: "P3", tone: "proposal", title: "Proposta do Projeto 3 em modelagem — sem aquisição nem aprovação." }
+    // No record → no funder is named: the action's own project goes only in the tooltip.
     const p = projectShort(action.projectId)
     return p
-      ? { label: `${p} · a validar`, tone: "validate", title: `Ação do ${p} sem registro de aquisição ou pagamento cadastrado.` }
-      : { label: "Financiamento a definir", tone: "undefined", title: "Nenhum projeto financiador nem aquisição registrados." }
+      ? { label: "A validar", short: "?", tone: "validate", title: `Sem registro de aquisição ou pagamento cadastrado (ação do ${p}); projeto financiador não registrado.` }
+      : { label: "Financiamento a definir", short: "a definir", tone: "undefined", title: "Nenhum projeto financiador nem aquisição registrados." }
   }
   const st = acq.acqStatus ?? "planejado"
   const who = fund ?? "Financiador a definir"
-  if (st === "cotacao") return { label: "Cotação", tone: "quote", title: `Cotação recebida${acq.quoteValue != null ? ` (${acq.quoteValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })})` : ""}; contratação pendente.` }
-  if (st === "planejado" || st === "em_negociacao") return { label: "A contratar", tone: "tocontract", title: `Aquisição ainda não contratada${acq.supplier ? ` (${acq.supplier})` : ""}.` }
-  if (!fund) return { label: "Financiamento a definir", tone: "undefined", title: "Aquisição registrada sem projeto financiador." }
-  if (st === "integralmente_pago") return { label: `${who} · Pago`, tone: "paid", title: `Aquisição registrada como integralmente paga pelo ${who}${acq.proof === "pendente" ? " — comprovação pendente" : ""}.` }
-  if (st === "parcialmente_pago" || acq.paymentMode === "parcelas")
-    return { label: `${who} · Parcelas`, tone: "parcelas", title: `Pagamento em parcelas${acq.installmentValue != null ? ` de ${acq.installmentValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : ""} — situação calculada pelas parcelas registradas.` }
-  return { label: `${who} · Contratado`, tone: "contracted", title: `Aquisição contratada pelo ${who}.` }
+  if (st === "cotacao") return { label: "Cotação", short: "Cot.", tone: "quote", title: `Cotação recebida${acq.quoteValue != null ? ` (${brl(acq.quoteValue)})` : ""}; contratação pendente.` }
+  if (st === "planejado" || st === "em_negociacao") return { label: "A contratar", short: "A contr.", tone: "tocontract", title: `Aquisição ainda não contratada${acq.supplier ? ` (${acq.supplier})` : ""}.` }
+  if (!fund) return { label: "Financiamento a definir", short: "a definir", tone: "undefined", title: "Aquisição registrada sem projeto financiador." }
+  if (st === "integralmente_pago") return { label: `${who} · Pago`, short: who, tone: "paid", title: `Aquisição registrada como integralmente paga pelo ${who}${proof}.` }
+  if (st === "parcialmente_pago") return { label: `${who} · Parcial`, short: who, tone: "partial", title: `Aquisição registrada como parcialmente paga pelo ${who}${proof}.` }
+  if (acq.paymentMode === "parcelas")
+    return { label: `${who} · Parcelas`, short: who, tone: "parcelas", title: `Pagamento em parcelas${acq.installmentValue != null ? ` de ${brl(acq.installmentValue)}` : ""} — situação calculada pelas parcelas registradas.` }
+  return { label: `${who} · Contratado`, short: who, tone: "contracted", title: `Aquisição contratada pelo ${who}${proof}.` }
 }
 
-const STAMP_TAG: Record<StampTone, TagTone> = { paid: "paid", parcelas: "info", contracted: "info", quote: "pending", tocontract: "pending", undefined: "neutral", proposal: "proposal", validate: "plan" }
-export const stampTag = (s: Stamp): Tag => ({ label: s.label, tone: STAMP_TAG[s.tone], title: s.title })
+const STAMP_TAG: Record<StampTone, TagTone> = { paid: "paid", partial: "pending", parcelas: "info", contracted: "info", quote: "pending", tocontract: "pending", undefined: "neutral", proposal: "proposal", validate: "plan" }
+export const stampTag = (s: Stamp): Tag => ({ label: s.label, short: s.short, tone: STAMP_TAG[s.tone], title: s.title })
 
 export interface ActionInfo {
   action: EffItem

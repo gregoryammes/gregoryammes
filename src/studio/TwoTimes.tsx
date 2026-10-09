@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 import { addMonths, calendarMonthsTouched, dayOf, fmtDate, fmtMonthsSpan, fromDay, monthShort, partAfter, toDay, ymd, type DayRange } from "@/lib/dates"
 import { summarizeScenario, type EffItem } from "@/lib/analysis"
 import { C, itemColor, statusOf, barStyleFor } from "@/lib/visual"
-import { docVigRange, offeringLabel, shortNameOf, TEMPORAL_LABEL, temporalSituation } from "@/lib/v6"
+import { docVigRange, isDocumented, offeringLabel, shortNameOf, TEMPORAL_LABEL, temporalSituation } from "@/lib/v6"
 import { FIN_LABEL, PARCEL_LABEL, type FinRecord, type TwoTimesCardId, type TwoTimesConfig } from "@/data/types"
 import { acqOf, finRecordsIn, paidOf } from "@/lib/finance"
 import { useStudio } from "@/store/store"
@@ -86,11 +86,18 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
     return () => ro.disconnect()
   }, [stage])
 
+  // Keys belong to the visible instance only: the Studio stays mounted (hidden) during the Board.
+  const appMode = useStudio((s) => s.mode)
+  const studioView = useView((s) => s.studioView)
+  const active = stage ? appMode === "board" : appMode === "studio" && studioView === "twotimes"
   useEffect(() => {
+    if (!active) return
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement
-      if (t.isContentEditable || t.closest("input,select,textarea")) return
+      if (t.isContentEditable || t.closest?.("input,select,textarea")) return
       if (step === 0) return
+      // At the last step "next" goes on to the presentation (next scene) instead of being swallowed.
+      if ((e.key === "ArrowRight" || e.key === " ") && step === N) return
       if (e.key === "ArrowRight" || e.key === " ") setStep((s) => Math.min(N, s + 1))
       else if (e.key === "ArrowLeft") setStep((s) => Math.max(0, s - 1))
       else if (e.key === "Escape") setStep(0)
@@ -100,7 +107,7 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
     }
     window.addEventListener("keydown", onKey, { capture: true })
     return () => window.removeEventListener("keydown", onKey, { capture: true })
-  }, [step])
+  }, [step, active])
 
   const mine = items.filter((i) => i.projectId === projectId && !i.hidden)
   const project = doc.projects.find((p) => p.id === projectId)
@@ -113,14 +120,17 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
   const courses = mine.filter((i) => i.kind === "curso").sort((a, b) => a.range.start - b.range.start)
   const mainCourse = courses.find((c) => c.certainty !== "hipotese" && !c.dateUndetermined) ?? courses[0]
   const ops = mine.filter((i) => i.kind === "operacao")
-  const others = cfg.showOthers ? mine.filter((i) => (i.kind === "atividade" || i.kind === "bolsa") && !i.parentId).sort((a, b) => a.range.start - b.range.start) : []
+  const others = cfg.showOthers && !stage ? mine.filter((i) => (i.kind === "atividade" || i.kind === "bolsa") && !i.parentId).sort((a, b) => a.range.start - b.range.start) : []
   const p3 = items.find((i) => i.kind === "projeto" && i.projectId === "p3")
   const ref = toDay(doc.settings.referenceDate)
-  const vigNature = vigRec?.contractStatus === "a_validar" || vigRec?.certainty === "a_validar" ? "referência operacional · conciliação documental pendente" : "referência documental"
+  // "Documental" only when the record says so (comprovado / formalizado / executado) — never by default.
+  const vigDocumented = isDocumented(vigRec?.certainty) && (!vigRec?.contractStatus || isDocumented(vigRec.contractStatus))
+  const vigNature = vigDocumented ? "referência documental" : "referência operacional · conciliação documental pendente"
+  const vigSub = vigDocumented ? "documental" : vigRec?.certainty === "nao_confirmado" ? "não confirmada" : "data operacional, a validar"
 
   const rows: Row[] = [
     ...(plan ? [{ key: plan.id, group: 1 as Group, label: "Planejamento original", sub: `${fmtDate(plan.start, "month")} – ${fmtDate(plan.end, "month")}`, item: plan, kind: "plan" as RowKind, stepShown: 1 }] : []),
-    ...(vigEff ? [{ key: vigEff.id, group: 1 as Group, label: "Vigência de referência", sub: `${project?.short ?? project?.name ?? ""} · ${vigRec?.certainty === "a_validar" ? "data operacional, a validar" : "documental"}`, item: vigEff, kind: "vig" as RowKind, stepShown: 1 }] : []),
+    ...(vigEff ? [{ key: vigEff.id, group: 1 as Group, label: "Vigência de referência", sub: `${project?.short ?? project?.name ?? ""} · ${vigSub}`, item: vigEff, kind: "vig" as RowKind, stepShown: 1 }] : []),
     ...courses.flatMap((c): Row[] => {
       const bolsas = mine.filter((b) => b.kind === "bolsa" && !b.consolidation && b.parentId === c.id)
       const planned = c.certainty === "hipotese" || !!c.dateUndetermined
@@ -137,7 +147,9 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
   // Shared scale: whole years covering everything shown.
   const allRanges = [docVig, hypVig, ...rows.map((r) => r.item.range), step >= 7 && p3 ? p3.range : null].filter((x): x is DayRange => !!x)
   const d0 = dayOf(ymd(Math.min(...allRanges.map((r) => r.start))).y, 1)
-  const d1 = dayOf(ymd(Math.max(...allRanges.map((r) => r.end)) - 1).y + 1, 1)
+  const lastYear = dayOf(ymd(Math.max(...allRanges.map((r) => r.end)) - 1).y + 1, 1)
+  // Keep at least a year after the documental end so the labels anchored there are never cut.
+  const d1 = docVig && lastYear - docVig.end < 365 ? dayOf(ymd(lastYear).y + 1, 1) : lastYear
   const nMonths = monthsBetween(d0, d1)
   const baseW = stage ? 1680 : W
   const LABEL = Math.max(stage ? 400 : 290, Math.round(baseW * 0.25))
@@ -147,9 +159,10 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
   const showMonthNames = plotW / nMonths >= 26
 
   const AXH = 64 * k
-  const GROUP_H = (stage ? 26 : 28) * k
-  const ROW = (stage ? 42 : 56) * k
-  const BAR = (stage ? 24 : 22) * k
+  const tight = stage && step > 0
+  const GROUP_H = (stage ? (tight ? 22 : 26) : 28) * k
+  const ROW = (stage ? (tight ? 36 : 42) : 56) * k
+  const BAR = (stage ? (tight ? 20 : 24) : 22) * k
   const groupsShown = ([1, 2, 3] as Group[]).filter((g) => rows.some((r) => r.group === g))
   const rowY = new Map<string, number>()
   const groupY = new Map<Group, number>()
@@ -165,7 +178,8 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
   }
   const bodyTop = AXH + 6 * k
   const bodyBottom = yc
-  const H = yc + (hypVig ? 52 : 38) * k
+  const refLow = !!docVig && ref > docVig.end
+  const H = yc + (hypVig ? 52 : 38) * k + (refLow ? 14 * k : 0)
 
   const course = mainCourse
   const courseAfter = course && docVig && !course.dateUndetermined ? partAfter(course.range, docVig) : null
@@ -227,7 +241,7 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
 
       <div className={cn(!stage && "px-5 py-3")}>
         {step > 0 && (
-          <div className={cn("mb-3 rounded-lg border bg-[#F7F9FC] font-semibold text-foreground", stage ? "px-5 py-3 text-[22px]" : "px-3 py-2 text-[13px]")} role="status">
+          <div className={cn("mb-3 rounded-lg border bg-[#F7F9FC] font-semibold text-foreground", stage ? "mb-2 px-4 py-2 text-[20px]" : "px-3 py-2 text-[13px]")} role="status">
             {TWO_TIMES_STEPS[step]}
             {step === 4 && courseAfter && <span className="text-[#9A4A08]"> {courseMonths} meses-calendário: {fmtMonthsSpan(courseAfter)}.</span>}
           </div>
@@ -315,8 +329,10 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
                   ))}
                   {r.kind === "vig" && docVig && hypVig && (
                     <g>
-                      <rect x={X(docVig.end)} y={by} width={Math.max(0, X(hypVig.end) - X(docVig.end))} height={BAR} rx={4} fill="#fff" stroke={C.scenario} strokeWidth={2} strokeDasharray="7 5" />
-                      <text x={X(docVig.end) + 8 * k} y={by + BAR / 2 + 4 * k} fontSize={fs(11)} fontWeight={700} fill={C.scenario}>cenário: até {fmtDate(fromDay(hypVig.end - 1))}</text>
+                      <rect x={X(Math.min(docVig.end, hypVig.end))} y={by} width={Math.abs(X(hypVig.end) - X(docVig.end))} height={BAR} rx={4} fill="#fff" fillOpacity={hypVig.end < docVig.end ? 0.6 : 1} stroke={C.scenario} strokeWidth={2} strokeDasharray="7 5" />
+                      <text x={X(Math.min(docVig.end, hypVig.end)) + 8 * k} y={by + BAR / 2 + 4 * k} fontSize={fs(11)} fontWeight={700} fill={C.scenario}>
+                        {hypVig.end < docVig.end ? `cenário: encerramento antecipado em ${fmtDate(fromDay(hypVig.end - 1))}` : `cenário: até ${fmtDate(fromDay(hypVig.end - 1))}`}
+                      </text>
                     </g>
                   )}
                   {r.kind === "vig" && step >= 7 && p3 && (
@@ -355,7 +371,7 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
                 </text>
               )}
               {hypVig && <text x={X(hypVig.end) + 6} y={bodyBottom + 44 * k} fill={C.scenario}>┆ {fmtDate(fromDay(hypVig.end - 1))} · hipótese de cenário</text>}
-              <text x={X(ref) - 6} y={bodyBottom + 14 * k} fill="#3E7D2C" textAnchor="end">referência {fmtDate(doc.settings.referenceDate)}</text>
+              <text x={X(ref) - 6} y={bodyBottom + (refLow ? (hypVig ? 58 : 44) : 14) * k} fill="#3E7D2C" textAnchor="end">referência {fmtDate(doc.settings.referenceDate)}</text>
             </g>
 
             {/* Name column (~25%), frozen while the months scale scrolls horizontally */}
@@ -455,7 +471,9 @@ function Bar({ it, r, y, h, X, docVig, k, step, size, ref_, color, lastCourseEnd
         <text x={x1 + 9 * k} y={y + h / 2 + 4 * k} fontSize={11 * k} fontWeight={600} fill={scenarioLook && !plan && !vig ? C.text : bs.text}>{vig ? vigLabel : label}</text>
       )}
       {after && r.kind === "course" && step !== 4 && X(after.end) - X(after.start) > 70 * k && (
-        <text x={X(after.start) + 6 * k} y={y - 5 * k} fontSize={10.5 * k} fontWeight={700} fill={C.afterText}>Execução posterior à vigência — situação financeira a verificar</text>
+        <text x={X(after.start) + 6 * k} y={y - 5 * k} fontSize={10.5 * k} fontWeight={700} fill={C.afterText}>
+          {scenarioLook ? "Período previsto após a vigência — hipótese" : "Execução posterior à vigência — situação financeira a verificar"}
+        </text>
       )}
       {/* Operation: the record ends with the vigência; what continues with the courses is "a analisar" (visual only). */}
       {r.kind === "ops" && docVig && lastCourseEnd > docVig.end && range.end <= docVig.end + 31 && (
@@ -491,7 +509,8 @@ function BolsaMonths({ it, y, h, X, docVig, fins, k, showAfter, color, ref_, tur
     const comp = `${t.y}-${String(t.m).padStart(2, "0")}`
     const a = Math.max(d, it.range.start)
     const b = Math.min(addMonths(d, 1), it.range.end)
-    const after = !!docVig && d >= docVig.end
+    // Any part of the competência after the documental end counts — the same rule as the label.
+    const after = !!docVig && b > docVig.end
     const p = byComp.get(comp)
     const status = p?.parcelStatus
     const pred = forecast || status === "prevista"
@@ -512,7 +531,7 @@ function BolsaMonths({ it, y, h, X, docVig, fins, k, showAfter, color, ref_, tur
       </rect>,
     )
   }
-  const afterMonths = docVig && !forecast ? calendarMonthsTouched(partAfter(it.range, docVig)) : 0
+  const afterMonths = docVig && !forecast ? calendarMonthsTouched(partAfter(it.range, docVig)) : 0 // = cells flagged above
   return (
     <g data-bolsa-months={it.id}>
       {cells}
@@ -532,13 +551,13 @@ function BolsaMonths({ it, y, h, X, docVig, fins, k, showAfter, color, ref_, tur
 function finLine(it: EffItem, fins: FinRecord[]) {
   const acq = acqOf(fins, it.id)
   if (acq) {
-    const paid = acq.acqStatus === "integralmente_pago"
-    if (paid && acq.proof === "comprovado") return "Aquisição integralmente paga e comprovada"
-    if (paid) return "Aquisição registrada como paga · comprovação pendente"
-    if (acq.acqStatus === "cotacao") return "Cotação recebida · contratação pendente"
-    if (acq.acqStatus === "em_negociacao") return "Aquisição: negociação · compra a formalizar"
-    if (acq.acqStatus === "planejado") return "Aquisição a decidir"
-    return `Aquisição: ${acq.acqStatus === "contratado" ? "contratada" : "parcialmente paga"}`
+    const st = acq.acqStatus ?? "planejado"
+    if (st === "integralmente_pago") return acq.proof === "comprovado" ? "Aquisição integralmente paga e comprovada" : "Aquisição registrada como paga · comprovação pendente"
+    if (st === "cotacao") return "Cotação recebida · contratação pendente"
+    if (st === "em_negociacao") return "Aquisição: negociação · compra a formalizar"
+    if (st === "contratado") return "Aquisição: contratada"
+    if (st === "parcialmente_pago") return "Aquisição: parcialmente paga"
+    return "Aquisição a decidir"
   }
   if (it.kind === "bolsa") return `Compromisso por competência${it.conditions ? " · frequência e unidades curriculares" : ""}`
   return FIN_LABEL[it.finSituation ?? "pendente"]
@@ -577,7 +596,9 @@ function SummaryCards({ stage, cfg, courses, items, fins, docVig }: { stage: boo
   const continuity: string[] = []
   for (const c of courses) {
     const a = docVig && !c.dateUndetermined ? partAfter(c.range, docVig) : null
-    if (a) continuity.push(`${shortNameOf(c)}: ${calendarMonthsTouched(a)} meses de formação após a vigência (${fmtMonthsSpan(a)})`)
+    const hyp = c.certainty === "hipotese" || c.certainty === "planejado"
+    if (a && hyp) continuity.push(`${shortNameOf(c)} (hipótese de cenário): ${calendarMonthsTouched(a)} meses previstos após a vigência (${fmtMonthsSpan(a)})`)
+    else if (a) continuity.push(`${shortNameOf(c)}: ${calendarMonthsTouched(a)} meses de formação após a vigência (${fmtMonthsSpan(a)})`)
     else if (c.dateUndetermined && docVig && c.range.start >= docVig.end) continuity.push(`${shortNameOf(c)}: previsto para ${c.start.slice(0, 4)}–${c.end.slice(0, 4)}, fora da vigência de referência — financiamento a definir`)
   }
   for (const b of items.filter((i) => i.kind === "bolsa" && i.parentId && !i.dateUndetermined && i.certainty !== "hipotese")) {
@@ -603,7 +624,19 @@ function SummaryCards({ stage, cfg, courses, items, fins, docVig }: { stage: boo
   }
   for (const b of items.filter((i) => i.kind === "bolsa" && i.parentId)) {
     const parcels = fins.filter((f) => f.kind === "parcela" && f.actionId === b.id)
-    commitments.push(`${shortNameOf(b)}: ${parcels.length ? `${parcels.filter((p) => p.parcelStatus === "paga").length} de ${parcels.length} competências registradas como pagas` : "competências sem registro de parcela — obrigação a analisar"}`)
+    const hyp = b.certainty === "hipotese" || b.certainty === "planejado" || !!b.dateUndetermined
+    const total = calendarMonthsTouched(b.range)
+    const first = ymd(b.range.start)
+    const inRange = new Set<string>()
+    for (let d = dayOf(first.y, first.m); d < b.range.end; d = addMonths(d, 1)) inRange.add(`${ymd(d).y}-${String(ymd(d).m).padStart(2, "0")}`)
+    const paid = new Set(parcels.filter((p) => p.parcelStatus === "paga").map((p) => p.competencia ?? p.start?.slice(0, 7)).filter((c): c is string => !!c && inRange.has(c))).size
+    commitments.push(
+      hyp
+        ? `${shortNameOf(b)}: previsão (hipótese) — nenhum compromisso registrado`
+        : parcels.length
+          ? `${shortNameOf(b)}: ${paid} de ${total} competências com parcela registrada como paga · ${total - paid} sem registro de pagamento`
+          : `${shortNameOf(b)}: ${total} competências sem registro de parcela — obrigação a analisar`,
+    )
   }
   const decisions = decisionsAll.filter((d) => d.status !== "decidido").map((d) => d.title)
 
@@ -652,6 +685,7 @@ function SummaryCards({ stage, cfg, courses, items, fins, docVig }: { stage: boo
               </div>
               <ul className={cn("mt-1.5 space-y-1 leading-snug text-foreground", stage ? "text-[15px]" : "text-[12px]")}>
                 {c.lines.slice(0, stage ? 3 : 8).map((l) => <li key={l} className={stage ? "truncate" : undefined} title={stage ? l : undefined}>• {l}</li>)}
+                {c.lines.length > (stage ? 3 : 8) && <li className="text-muted-foreground">+ {c.lines.length - (stage ? 3 : 8)} {c.lines.length - (stage ? 3 : 8) === 1 ? "item" : "itens"}{stage ? " no Estúdio" : ""}</li>}
               </ul>
               {!stage ? (
                 <textarea

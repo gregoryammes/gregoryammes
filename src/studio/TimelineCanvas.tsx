@@ -170,7 +170,9 @@ export function TimelineCanvas() {
   const docVig: DayRange | null = docVigRange(doc)
   // The documental "after the vigência" tint steps aside only where a whole-height quadrant starting
   // at the same documental end already shows it; a scenario-shifted quadrant never hides it.
-  const afterQuadEnd = docVig ? Math.max(docVig.end, ...quads.filter((x) => x.range!.start === docVig.end && !x.q.rowFrom && !x.q.rowTo).map((x) => x.range!.end)) : 0
+  const afterQuadEnd = docVig
+    ? Math.max(docVig.end, ...quads.filter((x) => x.q.mode === "auto" && x.q.rule?.kind === "after_vigencia" && x.range!.start === docVig.end && !x.q.rowFrom && !x.q.rowTo).map((x) => x.range!.end))
+    : 0
   const hypVig: DayRange | null = vig && docVig && (vig.range.end !== docVig.end || vig.range.start !== docVig.start) ? vig.range : null
   const filter = view.projectFilter
   const dimmed = (it: EffItem) =>
@@ -204,10 +206,11 @@ export function TimelineCanvas() {
   const { x0, pxPerDay: ppd, scrollY } = view
   const ppy = ppd * 365.25
   // Levels: only years below 120 px/ano (the annual zoom), semesters from 120, months from 150.
-  const showSem = ppy >= 120
+  // A zoom preset fixes the level even on wide screens (the 12-year cap can raise px/ano).
+  const showSem = ppy >= 120 && view.rulerMax !== "year"
   // The ruler is always ANO → SEMESTRE → MÊS (quarters are not a reading level here).
   const showQuarters = false
-  const showMonths = ppy >= 150
+  const showMonths = ppy >= 150 && !view.rulerMax
   const HEADER = PROJ_H + YEAR_H + (showSem ? SEM_H : 0) + (showMonths ? MONTH_H : 0) + 4
   const BODY_TOP = HEADER
   const X = (day: number) => LABEL_W + (day - x0) * ppd
@@ -247,9 +250,11 @@ export function TimelineCanvas() {
         e.preventDefault()
         st.save()
       } else if (e.key === "Delete" || e.key === "Backspace") {
-        if (st.selectedQuad && !(st.doc.quadrants ?? []).some((q) => q.id === st.selectedQuad)) st.selectQuad(null)
-        if (st.selectedQuad) {
-          const id = st.selectedQuad
+        // A selection left by an undone creation points to nothing: drop it instead of asking.
+        const sq = st.selectedQuad && (st.doc.quadrants ?? []).some((q) => q.id === st.selectedQuad) ? st.selectedQuad : null
+        if (st.selectedQuad && !sq) st.selectQuad(null)
+        if (sq) {
+          const id = sq
           confirmAction("Excluir o quadrante selecionado? Só o destaque visual é removido (é possível desfazer).").then((ok) => {
             if (!ok) return
             st.commit("excluir quadrante", (d) => deleteQuadrant(d, id))
@@ -967,7 +972,7 @@ export function TimelineCanvas() {
           <tspan x={18} y={24} fontSize={15} fontWeight={800}>SKA Tech Hub — Evolução</tspan>
           <tspan x={18} y={42} fontSize={15} fontWeight={800}>dos Projetos e da Formação</tspan>
         </text>
-        <text x={18} y={62} fontSize={11} fill={C.text2}>Projetos 1, 2 e 3 • Cursos • Turmas • Investimentos</text>
+        <text x={18} y={62} fontSize={10} fill={C.text2}>{truncate("Projetos 1, 2 e 3 • Cursos • Turmas • Investimentos", LABEL_W - 26, 10)}</text>
         <line x1={0} x2={size.w} y1={HEADER} y2={HEADER} stroke={C.grid} />
 
         {/* Horizontal scrollbar over the whole horizon */}
@@ -1214,7 +1219,8 @@ export function TimelineCanvas() {
     // Courses always show their expand button; other actions only on hover/selection (less noise).
     const courseToggle = it.kind === "curso"
     const hasToggle = !!r.compact && !!r.toggle && !narrow && w > 30 && (courseToggle || isSel || hover?.id === it.id || !!r.expanded)
-    const labelX = Math.max(x1, LABEL_W) + 9 + (hasToggle && (courseToggle || r.expanded) ? 18 : 0)
+    // The expand button always sits inside its own bar, never over the neighbour's end.
+    const labelX = Math.max(x1, LABEL_W) + 9 + (hasToggle ? 18 : 0)
     // Tags sit next to the label, inside the bar when there is room, otherwise after it.
     // In the modality view only the acquisition indicator is shown; details live in the hover.
     // Macro view: the carimbo financeiro is a corner badge (below); no other tag on the bar.
@@ -1717,17 +1723,28 @@ export function TimelineCanvas() {
    * financial records (never from the bar colour).
    */
   function StampBadge({ x1, x2, y, stamp, id }: { x1: number; x2: number; y: number; stamp: Tag; id: string }) {
-    const w = textWidth(stamp.label, 9.5) + 12
+    const left = Math.max(x1, LABEL_W) + 4
     const right = Math.min(x2, size.w - 4)
+    const room = right - left - 4
+    // Full label, then the compact form; on a bar too narrow for either, a dot (details in the tooltip).
+    const text = [stamp.label, stamp.short].find((t) => t && textWidth(t, 9.5) + 12 <= room)
+    const w = text ? textWidth(text, 9.5) + 12 : 9
     let x = right - w - 6
-    if (x < Math.max(x1, LABEL_W) + 4) x = Math.max(x1, LABEL_W) + 4
+    if (x < left) x = left
     const pal = TAG_PALETTE[stamp.tone]
+    // Part of the bar for clicks and drags; hovering shows the full stamp (e.g. "comprovação pendente").
     return (
-      <g pointerEvents="none" data-stamp={id} transform={`translate(${x},${y})`}>
-        <rect width={w} height={15} rx={4} fill="#FFFFFF" stroke={pal.bd} />
-        <rect width={w} height={15} rx={4} fill={pal.bg} fillOpacity={0.9} />
-        <text x={w / 2} y={11} fontSize={9.5} fontWeight={800} fill={pal.fg} textAnchor="middle" letterSpacing={0.2}>{stamp.label}</text>
-        {stamp.title && <title>{stamp.title}</title>}
+      <g data-hit="item" data-id={id} data-stamp={id} data-stamp-label={stamp.label} transform={`translate(${x},${y})`} style={{ cursor: "grab" }}>
+        {text ? (
+          <>
+            <rect width={w} height={15} rx={4} fill="#FFFFFF" stroke={pal.bd} />
+            <rect width={w} height={15} rx={4} fill={pal.bg} fillOpacity={0.9} />
+            <text x={w / 2} y={11} fontSize={9.5} fontWeight={800} fill={pal.fg} textAnchor="middle" letterSpacing={0.2} pointerEvents="none">{text}</text>
+          </>
+        ) : (
+          <circle cx={4.5} cy={7.5} r={4.5} fill={pal.bg} stroke={pal.bd} />
+        )}
+        <title>{`${stamp.label}${stamp.title ? ` — ${stamp.title}` : ""}`}</title>
       </g>
     )
   }

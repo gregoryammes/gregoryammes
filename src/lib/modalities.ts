@@ -3,7 +3,7 @@ import { resolveActions, type ResolveOptions, type ResolvedAction } from "./hier
 import { COMP_H, NOTE_H, ROW_H, type CompKind, type ItemRow, type LaneMember, type Row, type RowLayout } from "./layout"
 import { MODALITIES, modalityOf, type FinRecord, type ModalityId } from "@/data/types"
 import type { HierStats } from "./hierarchy"
-import { financeStamp, stampTag } from "./finance"
+import { acqOf, financeStamp, stampTag } from "./finance"
 
 /* ──────────────────────────────────────────────────────────────────────────────
  * V11 — the main timeline: a project region on top (three bands, the P2 plan and
@@ -49,6 +49,9 @@ export function computeModalities(o: ModOptions): RowLayout & { stats: HierStats
   const vis = (pid: string | null | undefined) => !pid || !o.hiddenProjects.includes(pid)
   const { actions, stats } = resolveActions(o)
   const short = (id: string | null | undefined) => o.doc.projects.find((p) => p.id === id)?.short ?? null
+  // The stamp reads the acquisition record itself — not the copy filtered by visible projects, so
+  // hiding the funding project never turns a registered acquisition into "no record".
+  const stampOf = (it: EffItem) => stampTag(financeStamp(it, acqOf(o.fins, it.id), short))
   const rows: Row[] = []
   const itemRows: ItemRow[] = []
   const rowOfMap = new Map<string, ItemRow>()
@@ -118,7 +121,7 @@ export function computeModalities(o: ModOptions): RowLayout & { stats: HierStats
     const singles = list.filter((a) => !a.members).sort((a, b) => a.item.range.start - b.item.range.start)
     const placed: Placed[] = singles.map((a) => ({ item: a.item, action: a, first: true }))
     const pack = packPreferred(singles.map((a) => ({ start: a.item.range.start, end: a.item.range.end, pref: a.item.modLane })))
-    const members: LaneMember[] = placed.map((p, k) => ({ item: p.item, lane: pack.lanes[k], info: p.action?.info, toggle: p.action?.key, expanded: o.expanded.includes(p.action!.key), stamp: p.action ? stampTag(financeStamp(p.action.item, p.action.info.acq, short)) : undefined }))
+    const members: LaneMember[] = placed.map((p, k) => ({ item: p.item, lane: pack.lanes[k], info: p.action?.info, toggle: p.action?.key, expanded: o.expanded.includes(p.action!.key), stamp: p.action ? stampOf(p.action.item) : undefined }))
     let laneCount = singles.length ? pack.count : 0
     // Bolsas linked to a course are components of it, but they also belong to "Bolsas e Incentivos".
     if (m.id === "bolsas") {
@@ -132,7 +135,7 @@ export function computeModalities(o: ModOptions): RowLayout & { stats: HierStats
     }
     for (const a of list.filter((x) => x.members)) {
       const sub = packPreferred(a.members!.map((i) => ({ start: i.range.start, end: i.range.end })))
-      a.members!.forEach((it, k) => members.push({ item: it, lane: laneCount + sub.lanes[k], info: k === 0 ? a.info : undefined, toggle: k === 0 ? a.key : undefined, expanded: o.expanded.includes(a.key), stamp: k === 0 ? stampTag(financeStamp(a.item, a.info.acq, short)) : undefined }))
+      a.members!.forEach((it, k) => members.push({ item: it, lane: laneCount + sub.lanes[k], info: k === 0 ? a.info : undefined, toggle: k === 0 ? a.key : undefined, expanded: o.expanded.includes(a.key), stamp: stampOf(it) }))
       laneCount += sub.count
     }
     laneRow("modality", m.label, members, laneCount, {

@@ -7,8 +7,9 @@ import { computeModalities } from "@/lib/modalities"
 import { createSeed, createSeedV11 } from "@/data/seed"
 import { applyV18, SEED_QUADRANTS, SRC_V18 } from "@/data/v18"
 import { needsMigration, normalizeDoc } from "@/data/migrate"
-import { newFin } from "@/store/finance"
-import { deleteTurma, newTurmaFor, setItemTurmas } from "@/store/turmas"
+import { newFin, setFunding } from "@/store/finance"
+import { deleteTurma, newTurmaFor, scenarioSetsTurmas, setItemTurmas } from "@/store/turmas"
+import { turmasOf } from "@/lib/v6"
 import { summarize } from "@/studio/FinanceColumn"
 import type { StudioDoc } from "@/data/types"
 import { deleteQuadrant, duplicateQuadrant, newQuadrant, patchQuadrant, shiftLayer, validQuadrant } from "@/store/quadrants"
@@ -63,6 +64,10 @@ describe("V18 — quadrantes", () => {
     expect(validQuadrant({ ...q, mode: "auto", rule: undefined })).toMatch(/regra/)
     // no-op edits return the same document (no undo entry); a locked quadrant keeps its place
     expect(patchQuadrant(d2, id, { color: "#8870B5" })).toBe(d2)
+    // the current swatch again: the outline is compared as drawn (strokeColor ?? color)
+    const seeded = doc.quadrants!.find((x) => x.id === "q-apos-vigencia-p2")!
+    expect(seeded.strokeColor).toBeUndefined()
+    expect(patchQuadrant(doc, seeded.id, { color: seeded.color, strokeColor: seeded.color })).toBe(doc)
     expect(deleteQuadrant(d2, "nao-existe")).toBe(d2)
     const locked = patchQuadrant(d2, id, { locked: true })
     expect(patchQuadrant(locked, id, { start: "2024-06-01" })).toBe(locked)
@@ -109,6 +114,24 @@ describe("V18 — carimbo financeiro", () => {
     expect(financeStamp(applyScenario(styled, "baseline").find((i) => i.id === "t1")!, acqOf(finRecordsIn(styled, "baseline"), "t1"), short(styled)).label).toBe("P2 · Pago")
     // A P3 action without acquisition is a proposal, not an approval.
     expect(financeStamp({ projectId: "p3", certainty: "hipotese" }, undefined, short(doc))).toMatchObject({ label: "P3 · Proposta", tone: "proposal" })
+    // Without a record no funder is named (the action's project only in the tooltip).
+    const none = financeStamp(items.find((i) => i.id === "jornada-2026")!, undefined, short(doc))
+    expect(none.label).toBe("A validar")
+    expect(none.title).toMatch(/ação do P2/)
+    // Partly paid is not "installments".
+    const part = { ...acqOf(fins, "t1")!, acqStatus: "parcialmente_pago" as const }
+    expect(financeStamp(items.find((i) => i.id === "t1")!, part, short(doc))).toMatchObject({ label: "P2 · Parcial", tone: "partial" })
+  })
+
+  it("o carimbo lê a aquisição mesmo com o projeto financiador oculto", () => {
+    let doc = createSeed()
+    // T1 co-funded by P1, so it stays visible with P2 hidden.
+    doc = setFunding(doc, "t1", [{ projectId: "p1" }, { projectId: "p2" }])
+    const items = applyScenario(doc, "baseline")
+    const L = computeModalities({ doc, items, fins: doc.finRecords ?? [], ref: REF, expanded: [], collapsedModalities: [], hiddenProjects: ["p2"], hideSettled: [], finFilter: "all", consolidations: doc.consolidations, detailAll: false })
+    const lane = L.rows.find((r): r is Extract<typeof r, { type: "lane" }> => r.type === "lane" && r.kind === "modality" && r.modality === "tecnico")!
+    const t1 = lane.members.find((m) => m.item.id === "t1")
+    expect(t1?.stamp?.label).toBe("P2 · Pago")
   })
 })
 
@@ -202,6 +225,13 @@ describe("V18 — dados e migração", () => {
     expect(del.scenarios.find((s) => s.id === "cen-tecnico-2027")!.overrides.t2.turmaIds).toEqual([t.id])
     // outside a scenario that sets turmas, the record itself is edited
     expect(setItemTurmas(doc, "t1", (cur) => [...cur, "x"], "baseline").items.find((i) => i.id === "t1")!.turmaIds).toContain("x")
+    expect(scenarioSetsTurmas(doc, "cen-tecnico-2027", "t2")).toBe(true)
+    expect(scenarioSetsTurmas(doc, "baseline", "t2")).toBe(false)
+    // emptied in the scenario → no turma there (no fallback to the baseline's turma)
+    const emptied = setItemTurmas(doc, "t2", () => [], "cen-tecnico-2027")
+    expect(emptied.items).toBe(doc.items)
+    expect(turmasOf(emptied, applyScenario(emptied, "cen-tecnico-2027").find((i) => i.id === "t2")!)).toEqual([])
+    expect(turmasOf(emptied, applyScenario(emptied, "baseline").find((i) => i.id === "t2")!).map((t) => t.id)).toEqual(["turma-tec-2028"])
   })
 
   it("não sobrescreve quadrantes nem datas editadas pelo usuário", () => {
