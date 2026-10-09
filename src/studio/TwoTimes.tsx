@@ -50,6 +50,9 @@ const GROUP_TITLE: Record<Group, [string, string]> = {
   3: ["OPERAÇÃO", "EQUIPE E ESTRUTURA"],
 }
 
+/** First variant that fits the room (approximate width), else the last one. */
+const fit = (variants: string[], room: number, px: number, bold = false) => variants.find((t) => t.length * px * (bold ? 0.6 : 0.55) <= room) ?? variants[variants.length - 1]
+
 const monthsBetween = (a: number, b: number) => {
   const x = ymd(a)
   const y = ymd(b)
@@ -147,13 +150,15 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
   // Shared scale: whole years covering everything shown.
   const allRanges = [docVig, hypVig, ...rows.map((r) => r.item.range), step >= 7 && p3 ? p3.range : null].filter((x): x is DayRange => !!x)
   const d0 = dayOf(ymd(Math.min(...allRanges.map((r) => r.start))).y, 1)
-  const lastYear = dayOf(ymd(Math.max(...allRanges.map((r) => r.end)) - 1).y + 1, 1)
-  // Keep at least a year after the documental end so the labels anchored there are never cut.
-  const d1 = docVig && lastYear - docVig.end < 365 ? dayOf(ymd(lastYear).y + 1, 1) : lastYear
-  const nMonths = monthsBetween(d0, d1)
   const baseW = stage ? 1680 : W
   const LABEL = Math.max(stage ? 400 : 290, Math.round(baseW * 0.25))
-  const plotW = Math.max(baseW - LABEL - 8, zoom === "meses" && !stage ? nMonths * 36 : 0)
+  const plotOf = (end: number) => Math.max(baseW - LABEL - 8, zoom === "meses" && !stage ? monthsBetween(d0, end) * 36 : 0)
+  // The labels anchored at the documental end need ~340 px on its right: add whole years until they
+  // fit at the current width (at most three), so they are never cut.
+  let d1 = dayOf(ymd(Math.max(...allRanges.map((r) => r.end)) - 1).y + 1, 1)
+  for (let i = 0; docVig && i < 2 && ((d1 - docVig.end) / (d1 - d0)) * plotOf(d1) < 340 * k; i++) d1 = dayOf(ymd(d1).y + 1, 1)
+  const nMonths = monthsBetween(d0, d1)
+  const plotW = plotOf(d1)
   const SVGW = LABEL + plotW + 8
   const X = (d: number) => LABEL + ((d - d0) / (d1 - d0)) * plotW
   const showMonthNames = plotW / nMonths >= 26
@@ -306,9 +311,9 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
                   <line x1={0} x2={SVGW} y1={y + ROW} y2={y + ROW} stroke={C.gridSoft} />
                   <g style={{ cursor: stage ? "default" : "pointer" }} onClick={() => !stage && useStudio.getState().select([it.id])}>
                     {r.kind === "bolsa" ? (
-                      <BolsaMonths it={it} y={by} h={BAR} X={X} docVig={docVig} fins={fins} k={k} showAfter={step === 0 || step >= 5} color={itemColor(it.kind, colorOf(it.projectId), it.color)} ref_={ref} turma={r.sub ?? ""} />
+                      <BolsaMonths it={it} y={by} h={BAR} X={X} svgW={SVGW} docVig={docVig} fins={fins} k={k} showAfter={step === 0 || step >= 5} color={itemColor(it.kind, colorOf(it.projectId), it.color)} ref_={ref} turma={r.sub ?? ""} />
                     ) : (
-                      <Bar it={it} r={r} y={by} h={BAR} X={X} docVig={docVig} k={k} step={step} size={size} ref_={ref} color={r.kind === "vig" ? colorOf(projectId) : itemColor(it.kind, colorOf(it.projectId), it.color)} lastCourseEnd={lastCourseEnd} />
+                      <Bar it={it} r={r} y={by} h={BAR} X={X} svgW={SVGW} docVig={docVig} k={k} step={step} size={size} ref_={ref} color={r.kind === "vig" ? colorOf(projectId) : itemColor(it.kind, colorOf(it.projectId), it.color)} lastCourseEnd={lastCourseEnd} />
                     )}
                     {(step === 3 || step === 4) && isMain && (
                       <rect x={X(it.range.start) - 4} y={by - 4} width={X(it.range.end) - X(it.range.start) + 8} height={BAR + 8} rx={5} fill="none" stroke={C.blue} strokeWidth={2.5} />
@@ -366,8 +371,8 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
             <g fontSize={fs(11.5)} fontWeight={700}>
               {docVig && (
                 <text x={X(docVig.end) + 6} y={bodyBottom + 14 * k} fill={C.vigLine}>
-                  ↑ {fmtDate(fromDay(docVig.end - 1))} · encerramento da vigência de referência
-                  <tspan x={X(docVig.end) + 6} dy={14 * k} fontSize={fs(10.5)} fontWeight={500}>{vigNature}</tspan>
+                  {fit([`↑ ${fmtDate(fromDay(docVig.end - 1))} · encerramento da vigência de referência`, `↑ ${fmtDate(fromDay(docVig.end - 1))} · fim da vigência de referência`, `↑ ${fmtDate(fromDay(docVig.end - 1))} · fim da vigência`], SVGW - X(docVig.end) - 12, fs(11.5), true)}
+                  <tspan x={X(docVig.end) + 6} dy={14 * k} fontSize={fs(10.5)} fontWeight={500}>{fit([vigNature, vigNature.split(" · ").pop()!], SVGW - X(docVig.end) - 12, fs(10.5))}</tspan>
                 </text>
               )}
               {hypVig && <text x={X(hypVig.end) + 6} y={bodyBottom + 44 * k} fill={C.scenario}>┆ {fmtDate(fromDay(hypVig.end - 1))} · hipótese de cenário</text>}
@@ -438,8 +443,8 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
   )
 }
 
-function Bar({ it, r, y, h, X, docVig, k, step, size, ref_, color, lastCourseEnd }: {
-  it: EffItem; r: Row; y: number; h: number; X: (d: number) => number; docVig: DayRange | null; k: number; step: number; size: string; ref_: number; color: string; lastCourseEnd: number
+function Bar({ it, r, y, h, X, svgW, docVig, k, step, size, ref_, color, lastCourseEnd }: {
+  it: EffItem; r: Row; y: number; h: number; X: (d: number) => number; svgW: number; docVig: DayRange | null; k: number; step: number; size: string; ref_: number; color: string; lastCourseEnd: number
 }) {
   const st = statusOf(it, ref_)
   const plan = r.kind === "plan"
@@ -472,7 +477,12 @@ function Bar({ it, r, y, h, X, docVig, k, step, size, ref_, color, lastCourseEnd
       )}
       {after && r.kind === "course" && step !== 4 && X(after.end) - X(after.start) > 70 * k && (
         <text x={X(after.start) + 6 * k} y={y - 5 * k} fontSize={10.5 * k} fontWeight={700} fill={C.afterText}>
-          {scenarioLook ? "Período previsto após a vigência — hipótese" : "Execução posterior à vigência — situação financeira a verificar"}
+          {fit(
+            scenarioLook
+              ? ["Período previsto após a vigência — hipótese", "Previsto após a vigência", "Hipótese"]
+              : ["Execução posterior à vigência — situação financeira a verificar", "Após a vigência — situação financeira a verificar", "Após a vigência · a verificar"],
+            svgW - X(after.start) - 12 * k, 10.5 * k, true,
+          )}
         </text>
       )}
       {/* Operation: the record ends with the vigência; what continues with the courses is "a analisar" (visual only). */}
@@ -491,8 +501,8 @@ function Bar({ it, r, y, h, X, docVig, k, step, size, ref_, color, lastCourseEnd
 }
 
 /** Bolsas: one cell per competência (month). The state comes only from installment records — never presumed. */
-function BolsaMonths({ it, y, h, X, docVig, fins, k, showAfter, color, ref_, turma }: {
-  it: EffItem; y: number; h: number; X: (d: number) => number; docVig: DayRange | null; fins: FinRecord[]; k: number; showAfter: boolean; color: string; ref_: number; turma: string
+function BolsaMonths({ it, y, h, X, svgW, docVig, fins, k, showAfter, color, ref_, turma }: {
+  it: EffItem; y: number; h: number; X: (d: number) => number; svgW: number; docVig: DayRange | null; fins: FinRecord[]; k: number; showAfter: boolean; color: string; ref_: number; turma: string
 }) {
   const byComp = new Map<string, FinRecord>()
   for (const p of fins) {
@@ -537,7 +547,7 @@ function BolsaMonths({ it, y, h, X, docVig, fins, k, showAfter, color, ref_, tur
       {cells}
       {showAfter && afterMonths > 0 && docVig && (
         <text x={X(Math.max(docVig.end, it.range.start)) + 6 * k} y={y - 4 * k} fontSize={10 * k} fontWeight={700} fill={C.afterText}>
-          {afterMonths} competências após a vigência — cobertura a validar
+          {fit([`${afterMonths} competências após a vigência — cobertura a validar`, `${afterMonths} competências após a vigência`, `${afterMonths} após a vigência`], svgW - X(Math.max(docVig.end, it.range.start)) - 12 * k, 10 * k, true)}
         </text>
       )}
       {forecast && X(it.range.end) - X(it.range.start) > 120 * k && (
