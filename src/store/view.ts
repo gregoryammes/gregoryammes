@@ -2,7 +2,7 @@ import { create } from "zustand"
 import { dayOf } from "@/lib/dates"
 import type { FinFilter } from "@/lib/finance"
 
-export type Tool = "select" | "hand" | "note" | "connect"
+export type Tool = "select" | "hand" | "note" | "connect" | "quadrant"
 export type StudioView = "timeline" | "journey" | "twotimes" | "projeto3"
 /** modalities = V11 (padrão) · projects = só projetos · courses/details = hierarquia V8 · all/filtered = matriz V6. */
 export type DisplayMode = "modalities" | "projects" | "courses" | "details" | "all" | "filtered"
@@ -16,8 +16,9 @@ export const RANGE_PRESETS = [
 ] as const
 
 export const ZOOM_PRESETS = {
-  anual: { label: "Anos", pxPerDay: 300 / 365 },
-  semestral: { label: "Semestres", pxPerDay: 300 / 182 },
+  // Ruler levels: < 90 px/ano → só anos; 90–150 → anos e semestres; ≥ 150 → anos, semestres e meses.
+  anual: { label: "Anos", pxPerDay: 84 / 365 },
+  semestral: { label: "Semestres", pxPerDay: 130 / 365 },
   trimestral: { label: "Trimestres", pxPerDay: 240 / 91 },
   mensal: { label: "Meses", pxPerDay: 220 / 30.4 },
   semanal: { label: "Semanas", pxPerDay: 150 / 7 },
@@ -58,6 +59,8 @@ interface ViewState {
   showFinance: boolean
   showSummary: boolean
   panelTab: PanelTab
+  /** Rows of the current timeline layout (key + title), published by the canvas for the quadrant panel. */
+  rowIndex: { key: string; title: string }[]
   /** Requested step of the "Explicar vigência" walkthrough (consumed by Dois Tempos). */
   explain: number
   journeyMode: JourneyMode
@@ -102,10 +105,12 @@ export const useView = create<ViewState>((set, get) => ({
   showTrace: false,
   studioView: "timeline",
   displayMode: "modalities",
-  collapsedModalities: [],
+  // Macro view: only the three formation lines open by default.
+  collapsedModalities: ["bolsas", "operacao", "outras"],
   showFinance: false,
   showSummary: true,
   panelTab: "conteudo",
+  rowIndex: [],
   explain: 0,
   expanded: [],
   collapsedActions: [],
@@ -125,7 +130,7 @@ export const useView = create<ViewState>((set, get) => ({
   detailAll: false,
   sidebarOpen: true,
   indicatorsOpen: false,
-  range: { from: 2025, to: 2028 },
+  range: { from: 2023, to: 2030 },
   setRange: (from, to) => {
     set({ range: { from, to } })
     get().fit(dayOf(from, 1), dayOf(to + 1, 1))

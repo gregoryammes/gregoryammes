@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { ChevronDown, ChevronUp, Hand, Link2, MousePointer2, StickyNote } from "lucide-react"
+import { ChevronDown, ChevronUp, Hand, Link2, MousePointer2, SquareDashed, StickyNote } from "lucide-react"
 import { AgentTrace, type TraceSpan } from "@/components/ui/agent-trace"
 import { fmtDate, fmtMonthsSpan, fromDay } from "@/lib/dates"
 import { describeAfter } from "@/lib/analysis"
@@ -14,6 +14,7 @@ const TOOLS: { id: Tool; icon: typeof Hand; label: string; key: string }[] = [
   { id: "hand", icon: Hand, label: "Mover tela", key: "H" },
   { id: "note", icon: StickyNote, label: "Anotar", key: "N" },
   { id: "connect", icon: Link2, label: "Conectar", key: "C" },
+  { id: "quadrant", icon: SquareDashed, label: "Quadrante", key: "Q" },
 ]
 
 /** Figma-style floating tools: editing stays one click away without crowding the header. */

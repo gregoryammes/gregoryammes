@@ -283,3 +283,77 @@ As visões anteriores continuam em *Exibição*: Somente Projetos, Projetos + Cu
 **Dados acrescentados:** as 26 propostas listadas no briefing V11 (todas “Ideia”, sem datas, custos ou responsáveis), os 4 marcos da ata (Previsto), a reunião com a liderança (a confirmar), o Cenário B e a decisão pendente “Validação interna da estruturação do Projeto 3”. O Cenário de prorrogação foi renomeado para “Cenário A — Prorrogação do Projeto 2 (simulação)”. Cores dos projetos atualizadas só onde ainda eram as padrão. Migração idempotente com backup (`ska-temporal-studio:v1:backup-v8`).
 
 **Ainda não feito:** edição de rótulo e estilo para vários blocos de uma vez; arrastar ideias por teclado (há o seletor de pilar); importação de NF/pagamentos em lote; a barra lateral “Elementos” continua organizada por categoria.
+
+## V18 — Executive Visual Timeline (Entrega 1: redesign e quadrantes)
+
+**Visão Macro** (Linha do tempo → Exibição “Projetos e modalidades”, padrão):
+- Cabeçalho “SKA Tech Hub — Evolução dos Projetos e da Formação”, subtítulo “Projetos 1, 2 e 3 • Cursos • Turmas • Investimentos”. A régua abre em **2023–2030**.
+- Faixas do Projeto 1, 2 e 3 (P3 tracejado, período do cenário ativo) e fundo muito claro por projeto.
+- Só três linhas de formação abertas: **Jornada Tecnológica**, **Robótica** e **Cursos Técnicos**. Bolsas, Operação e Outras ações começam recolhidas; abrir/fechar fica salvo.
+  - Jornada: 1ª (2023), 2ª (2024), 3ª (2025), 4ª (2026) e 5ª (planejamento, a validar).
+  - Robótica: 2024, 2026 e 2027 (contratação pendente).
+  - Cursos Técnicos: 2024–2025 (P1), 2026–2027 (Técnico 1) e 2028–2029 (aquisição a decidir), todos numa linha. Cada curso de dois anos é uma barra contínua.
+- Datas aproximadas aparecem com “≈” e contorno tracejado.
+- **Carimbo financeiro** no canto da barra, lido do registro de aquisição (projeto financiador + situação), nunca da cor da barra:
+  - P1 · Pago, P2 · Pago, P2 · Parcelas, P2 · Contratado;
+  - Cotação, A contratar;
+  - Financiamento a definir, P2 · a validar (ação sem registro), P3 · Proposta.
+- **Zoom**: *Anos* mostra só anos, *Semestres* mostra anos e semestres, *Meses* mostra também os meses. A posição é calculada pelo dia exato.
+- Com Técnico 1 e Técnico 2 encostados na mesma linha, as alças de redimensionar do bloco selecionado têm prioridade sobre as do vizinho.
+
+**Quadrantes** (destaques visuais de período × faixa de linhas, sempre atrás das barras e textos):
+- *Criar*: ferramenta **Quadrante** (barra inferior, tecla **Q**, ou “+” em *Quadrantes* na barra lateral). Arraste sobre a timeline: o período vem da régua e as linhas inicial/final, das linhas sob o arraste.
+- *Editar* (painel “Quadrante”):
+  - título, descrição, início/fim, linha inicial/final;
+  - 6 cores de referência + cor livre, opacidade, contorno (nenhum/contínuo/tracejado) e cor do contorno, mostrar título;
+  - camada (à frente/atrás, sempre abaixo das barras), duplicar, ocultar, bloquear, excluir (com confirmação; só o destaque visual é removido).
+  - Na timeline: arraste o título para mover e as bordas para redimensionar.
+- *Modos*:
+  - **Manual**: datas e linhas próprias.
+  - **Automático**: período por regra, lido do cenário ativo: *após a vigência do projeto* (do fim da vigência ao fim do último curso/turma que a atravessa), *período do projeto* ou *transição entre projetos*. Um quadrante automático não se arrasta; converta para manual para movê-lo.
+- *Exemplos cadastrados*:
+  - “Após a vigência do Projeto 2” (jul–dez/2027, laranja claro, automático);
+  - “Projeto 3 — Proposta” (período do P3 no cenário, roxo claro tracejado).
+  - A antiga anotação do Técnico 1 virou a descrição do primeiro.
+- A lista **Quadrantes** na barra lateral mostra as camadas, com olho, cadeado e seleção. Tudo entra no desfazer/refazer e é salvo no documento (`doc.quadrants`).
+
+**Dois Tempos — “O prazo do projeto não é o prazo da formação”:**
+- *Layout*:
+  - Coluna fixa de nomes (~25%), que continua parada durante a rolagem na escala *Meses*.
+  - Régua anos → semestres → meses e três grupos: **Planejamento e vigência**, **Formação** e **Operação**.
+- *Planejamento e vigência*:
+  - Planejamento original (jan/2025–dez/2026) em cinza-azulado e Vigência de referência (jul/2025–jun/2027) em azul institucional.
+  - A defasagem de 6 meses entre os dois é indicada; marco jurídico em losango.
+  - Hipótese de vigência do cenário aparece tracejada.
+- *Formação*:
+  - Técnico 1 em barra contínua, com o trecho posterior em laranja: “Execução posterior à vigência — situação financeira a verificar”.
+  - **Bolsas** em células mensais por competência. O estado vem só de parcelas registradas; sem registro, nada é dado como pago. As competências após a vigência ficam destacadas.
+  - Técnico 2 e Bolsas T2 em aparência de planejamento/previsão.
+- *Operação*: equipe com “continuidade a analisar” (só visual) até o fim do último curso.
+- *Marco*: linha vertical com data e natureza (“referência operacional · conciliação documental pendente”) e região laranja-clara depois dela.
+- *Por linha*: situação temporal e situação financeira, sempre separadas.
+- *Três quadros inferiores*:
+  - **Continuidade temporal**, **Compromissos financeiros** e **Decisões**, calculados dos registros (nenhum total copiado).
+  - Título editável com duplo clique, ocultar/mostrar e nota livre, salvos em `presentation.twoTimes`.
+  - Opção “Outras atividades” acrescenta Robótica 2026, Bolsas de Inglês e a 4ª Jornada.
+- *Explicar vigência*: continua em 7 etapas. A cena 3 da Diretoria usa a mesma visão, compactada para 16:9.
+
+**Dados V18** (informados no briefing, a validar; migração idempotente com backup `ska-temporal-studio:v1:backup-v11`, IDs preservados):
+- *Projeto 1*: concluído. Aquisições registradas como pagas, com comprovação pendente.
+- *Técnico 1*:
+  - período 18/02/2026–dez/2027;
+  - aquisição de R$ 298.012 paga antecipadamente pelo P2 em set/2025;
+  - bolsas por frequência e unidades curriculares.
+- *Robótica*:
+  - 2026: a partir de 14/03/2026, parcelas mensais de R$ 4.480 ao SENAI; fim dez/2026 a validar.
+  - 2027: cotação de R$ 44.800, contratação pendente.
+- *Técnico 2*:
+  - 2028–2029 (planejamento mais recente), aquisição a decidir (SENAI, pagamento e NF únicos).
+  - Os registros 2027–2028 foram mantidos no cenário “Técnico futuro — turma 2027–2028 (registros anteriores)”.
+- *Jornadas*: 3ª Jornada sem financiador registrado; 5ª Jornada colocada provisoriamente em 2027 (planejamento a validar).
+- *Projeto 3*: em modelagem; não é tratado como fonte de compromissos anteriores.
+
+**Ainda não feito (Entregas 2–4):**
+- *Entrega 2*: regras de bolsa por competência (frequência, unidades curriculares), marcos editáveis com comparação documental × cenário e seletor da referência da vigência do P2 (assinatura maio/junho 2025 × operacional).
+- *Entrega 3*: cronograma de NF e competências, pagamentos e simulação de antecipação de NF (sem alterar NFs reais), tooltips financeiros e resumo executivo configurável.
+- *Entrega 4*: Jornada em 4 etapas conectadas com seletor de turma, refinamentos do quadro do P3, Cena 4 com orçamento de R$ 3.754.400 (Infra R$ 210.000, Formação R$ 1.635.000, Operacionalização R$ 1.909.400 como valores de referência), composições e instantâneos salvos.

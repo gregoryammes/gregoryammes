@@ -24,7 +24,7 @@ export function finRange(f: Pick<FinRecord, "start" | "end">): DayRange | null {
   }
 }
 
-export type TagTone = "paid" | "neutral" | "pending" | "scenario" | "warn" | "info" | "plan"
+export type TagTone = "paid" | "neutral" | "pending" | "scenario" | "warn" | "info" | "plan" | "proposal"
 export interface Tag {
   label: string
   tone: TagTone
@@ -43,6 +43,8 @@ export function acqTag(a: FinRecord | undefined): Tag {
       return { label: "Parcialmente pago", tone: "pending" }
     case "contratado":
       return { label: "Contratado", tone: "info" }
+    case "cotacao":
+      return { label: "Cotação", tone: "pending", title: "Cotação recebida — contratação pendente de confirmação." }
     case "em_negociacao":
       return stepDone(a, "negociacao")
         ? { label: "Compra a formalizar", tone: "pending", title: "Negociação concluída; contrato ainda não formalizado." }
@@ -71,6 +73,40 @@ export function acqWarnings(fins: FinRecord[], a: FinRecord): string[] {
   if ((st === "contratado" || st === "parcialmente_pago" || st === "integralmente_pago") && !a.contractDate && !stepDone(a, "contrato")) out.push("Contrato não registrado (data e documento).")
   return out
 }
+
+/**
+ * Carimbo financeiro: who funds the acquisition and in what state, read from the linked financial
+ * records only — never from the bar colour, the project row or the course status.
+ */
+export type StampTone = "paid" | "parcelas" | "contracted" | "quote" | "tocontract" | "undefined" | "proposal" | "validate"
+export interface Stamp {
+  label: string
+  tone: StampTone
+  title: string
+}
+
+export function financeStamp(action: Pick<Item, "projectId" | "certainty">, acq: FinRecord | undefined, projectShort: (id: string | null | undefined) => string | null): Stamp {
+  const fund = acq ? projectShort(acq.fundingProjectId) : null
+  if (!acq) {
+    if (action.projectId === "p3") return { label: "P3 · Proposta", tone: "proposal", title: "Proposta do Projeto 3 em modelagem — sem aquisição nem aprovação." }
+    const p = projectShort(action.projectId)
+    return p
+      ? { label: `${p} · a validar`, tone: "validate", title: `Ação do ${p} sem registro de aquisição ou pagamento cadastrado.` }
+      : { label: "Financiamento a definir", tone: "undefined", title: "Nenhum projeto financiador nem aquisição registrados." }
+  }
+  const st = acq.acqStatus ?? "planejado"
+  const who = fund ?? "Financiador a definir"
+  if (st === "cotacao") return { label: "Cotação", tone: "quote", title: `Cotação recebida${acq.quoteValue != null ? ` (${acq.quoteValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })})` : ""}; contratação pendente.` }
+  if (st === "planejado" || st === "em_negociacao") return { label: "A contratar", tone: "tocontract", title: `Aquisição ainda não contratada${acq.supplier ? ` (${acq.supplier})` : ""}.` }
+  if (!fund) return { label: "Financiamento a definir", tone: "undefined", title: "Aquisição registrada sem projeto financiador." }
+  if (st === "integralmente_pago") return { label: `${who} · Pago`, tone: "paid", title: `Aquisição registrada como integralmente paga pelo ${who}${acq.proof === "pendente" ? " — comprovação pendente" : ""}.` }
+  if (st === "parcialmente_pago" || acq.paymentMode === "parcelas")
+    return { label: `${who} · Parcelas`, tone: "parcelas", title: `Pagamento em parcelas${acq.installmentValue != null ? ` de ${acq.installmentValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : ""} — situação calculada pelas parcelas registradas.` }
+  return { label: `${who} · Contratado`, tone: "contracted", title: `Aquisição contratada pelo ${who}.` }
+}
+
+const STAMP_TAG: Record<StampTone, TagTone> = { paid: "paid", parcelas: "info", contracted: "info", quote: "pending", tocontract: "pending", undefined: "neutral", proposal: "proposal", validate: "plan" }
+export const stampTag = (s: Stamp): Tag => ({ label: s.label, tone: STAMP_TAG[s.tone], title: s.title })
 
 export interface ActionInfo {
   action: EffItem
@@ -113,7 +149,8 @@ export function actionInfo(action: EffItem, items: EffItem[], fins: FinRecord[],
     else if (f.proof === "pendente") open.push("comprovação pendente")
   }
   for (const b of bolsas) if (b.range.end > ref) open.push("bolsas em período futuro")
-  const ended = action.range.end <= ref && action.certainty !== "hipotese" && action.certainty !== "planejado" && !action.dateUndetermined
+  // An approximate (undetermined) window that closed before the reference date is over too.
+  const ended = action.range.end <= ref && action.certainty !== "hipotese" && action.certainty !== "planejado"
   return { action, acq, fins: mine, bolsas, tags, open: [...new Set(open)], ended, paid: acq?.acqStatus === "integralmente_pago" }
 }
 

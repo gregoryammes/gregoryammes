@@ -212,6 +212,48 @@ export interface BlockStyle {
   preset?: string
 }
 
+export type TwoTimesCardId = "continuidade" | "compromissos" | "decisoes"
+export interface TwoTimesConfig {
+  cards?: Partial<Record<TwoTimesCardId, { title?: string; hidden?: boolean; note?: string }>>
+  /** Also show the other P2 activities (Robótica, Jornada, Bolsas de Inglês). */
+  showOthers?: boolean
+}
+
+/* ── V18 — Quadrants: visual highlights over a period (visual layer only) ─────── */
+
+export type QuadrantRule =
+  /** From the end of a project's vigência (active scenario) to the end of the last course of that project crossing it. */
+  | { kind: "after_vigencia"; projectId: string }
+  /** The project's cycle in the active scenario. */
+  | { kind: "project_period"; projectId: string }
+  /** From the end of one project's cycle to the start of the next one (transition). */
+  | { kind: "between_projects"; fromProjectId: string; toProjectId: string }
+
+export interface Quadrant {
+  id: string
+  title: string
+  description?: string
+  /** manual: fixed dates, a pure highlight. auto: follows a rule (and the scenario). */
+  mode: "manual" | "auto"
+  rule?: QuadrantRule
+  /** Inclusive dates — used by manual quadrants (and as the last computed value of auto ones). */
+  start: ISODate
+  end: ISODate
+  /** First and last row (row keys of the timeline); null = the whole height. */
+  rowFrom?: string | null
+  rowTo?: string | null
+  color: string
+  opacity: number
+  stroke: "none" | "solid" | "dashed"
+  strokeColor?: string
+  /** Visual layer: higher draws above lower (always below bars and texts). */
+  layer: number
+  hidden?: boolean
+  locked?: boolean
+  /** Show the title chip on the canvas. */
+  showTitle?: boolean
+}
+
 /* ── V11 — Projeto 3: strategic planning ─────────────────────────────────────── */
 
 export type PillarId = "formacao" | "talentos" | "infraestrutura" | "ia" | "transversal"
@@ -329,10 +371,11 @@ export const FIN_KIND_LABEL: Record<FinKind, string> = {
 }
 
 /** Financial state of an acquisition — distinct from its documentary proof. */
-export type AcqStatus = "planejado" | "em_negociacao" | "contratado" | "parcialmente_pago" | "integralmente_pago"
+export type AcqStatus = "planejado" | "cotacao" | "em_negociacao" | "contratado" | "parcialmente_pago" | "integralmente_pago"
 
 export const ACQ_STATUS_LABEL: Record<AcqStatus, string> = {
   planejado: "Planejado",
+  cotacao: "Cotação recebida",
   em_negociacao: "Em negociação",
   contratado: "Contratado",
   parcialmente_pago: "Parcialmente pago",
@@ -400,6 +443,8 @@ export interface FinRecord {
   end: ISODate | null
   /** Only a window is known (e.g. "within the vigência"): drawn as a dashed interval, never a point. */
   dateUndetermined?: boolean
+  /** How precisely the source dates the event (e.g. "month" for “setembro/2025”). */
+  precision?: Precision
   /** True only when a record of the event exists (NF issued, payment made, material received). */
   realized: boolean
   /** `null` = não informado, never zero. */
@@ -423,6 +468,12 @@ export interface FinRecord {
   acqStatus?: AcqStatus
   contractDate?: ISODate | null
   contractValue?: number | null
+  /** Quotation received (not a contract). */
+  quoteValue?: number | null
+  /** How the acquisition is paid: one payment / NF, or periodic installments. */
+  paymentMode?: "unico" | "parcelas"
+  /** Value of each installment, when informed. */
+  installmentValue?: number | null
   steps?: AcqStep[]
   // parcela de bolsa
   parcelStatus?: ParcelStatus
@@ -619,9 +670,13 @@ export interface StudioDoc {
   finRecords?: FinRecord[]
   /** V11 — Projeto 3 strategic planning. */
   strategy?: Strategy
+  /** V18 — visual quadrants over the timeline. Never data: deleting one deletes only the highlight. */
+  quadrants?: Quadrant[]
   presentation: {
     layout: Record<string, BoxLayout>
     notes: SceneNote[]
     highlightCourseIds: string[]
+    /** V18 — Dois Tempos: summary cards (title, visibility, note) and extra rows. Presentation only. */
+    twoTimes?: TwoTimesConfig
   }
 }

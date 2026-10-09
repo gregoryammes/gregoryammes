@@ -47,6 +47,9 @@ export interface StudioState {
   /** V8: a financial record selected on a component row. */
   selectedFin: string | null
   selectFin: (id: string | null) => void
+  /** V18: a visual quadrant selected on the canvas. */
+  selectedQuad: string | null
+  selectQuad: (id: string | null) => void
   clipboard: Item[]
   designMode: boolean
   scene: number
@@ -228,7 +231,9 @@ export const useStudio = create<StudioState>((set, get) => ({
   selection: [],
   selectedAnnotation: null,
   selectedFin: null,
-  selectFin: (id) => set({ selectedFin: id, selection: [], selectedAnnotation: null }),
+  selectFin: (id) => set({ selectedFin: id, selection: [], selectedAnnotation: null, selectedQuad: null }),
+  selectedQuad: null,
+  selectQuad: (id) => set({ selectedQuad: id, selectedFin: null, selection: [], selectedAnnotation: null }),
   clipboard: [],
   designMode: false,
   scene: 0,
@@ -490,11 +495,11 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   select: (ids, additive) => {
     const cur = get().selection
-    if (!additive) set({ selection: ids, selectedAnnotation: null, selectedFin: null })
+    if (!additive) set({ selection: ids, selectedAnnotation: null, selectedFin: null, selectedQuad: null })
     else {
       const next = new Set(cur)
       ids.forEach((i) => (next.has(i) ? next.delete(i) : next.add(i)))
-      set({ selection: [...next], selectedAnnotation: null, selectedFin: null })
+      set({ selection: [...next], selectedAnnotation: null, selectedFin: null, selectedQuad: null })
     }
   },
   setMode: (m) => {

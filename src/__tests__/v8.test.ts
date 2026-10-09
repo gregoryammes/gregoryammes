@@ -141,8 +141,9 @@ describe("V8 — finance", () => {
     const pay = doc.finRecords!.find((f) => f.id === r.id)!
     // The same record reaches the totals through the action, the project and a filter.
     const views = [...doc.finRecords!, pay, pay]
-    expect(finTotals(views).paid).toBe(1000)
-    expect(finTotals(views, { projects: ["p2"] }).paid).toBe(1000)
+    const before = finTotals(createSeed().finRecords!).paid ?? 0
+    expect(finTotals(views).paid).toBe(before + 1000)
+    expect(finTotals(views, { projects: ["p2"] }).paid).toBe(before + 1000)
     expect(finTotals(views, { projects: ["p1"] }).paid).toBeNull()
     expect(doc.finRecords!.filter((f) => f.id === r.id)).toHaveLength(1)
   })
@@ -151,9 +152,11 @@ describe("V8 — finance", () => {
     const doc = createSeed()
     const items = applyScenario(doc, "baseline")
     const fins = doc.finRecords!
-    const p1 = actionInfo(items.find((i) => i.id === "p1-tecnico")!, items, fins, REF)
+    const p1 = actionInfo(items.find((i) => i.id === "p1-educ")!, items, fins, REF)
     expect(p1.tags[0].label).toBe("Pagamento a validar")
     expect(p1.paid).toBe(false)
+    // P1 acquisitions informed as paid in V18 carry their own record.
+    expect(actionInfo(items.find((i) => i.id === "p1-tecnico")!, items, fins, REF).paid).toBe(true)
     const t1 = actionInfo(items.find((i) => i.id === "t1")!, items, fins, REF)
     expect(t1.paid).toBe(true)
     // Paid acquisition, but bolsas and proof are still open.
@@ -165,16 +168,18 @@ describe("V8 — finance", () => {
     // A finished, paid and proven P1 action — and another finished and paid with an open NF.
     doc = writePatch(doc, "baseline", "p1-robotica", { dateUndetermined: false, certainty: "executado", start: "2024-02-01", end: "2024-11-30" })
     doc = writePatch(doc, "baseline", "p1-jornada", { dateUndetermined: false, certainty: "executado", start: "2024-02-01", end: "2024-11-30" })
-    const add = (d: StudioDoc, id: string, extra: Partial<FinRecord>) => newFin(d, "aquisicao", d.items.find((i) => i.id === id)!, { acqStatus: "integralmente_pago", proof: "comprovado", ...extra }).doc
-    doc = add(doc, "p1-robotica", {})
-    doc = add(doc, "p1-jornada", {})
+    // Their V18 acquisitions (paid, proof pending) become proven.
+    const prove = (d: StudioDoc, id: string, extra: Partial<FinRecord>) => patchFin(d, `fin-${id}-aquisicao`, { proof: "comprovado", evidence: "doc", ...extra })
+    doc = prove(doc, "p1-robotica", {})
+    doc = prove(doc, "p1-jornada", {})
     doc = newFin(doc, "nf", doc.items.find((i) => i.id === "p1-jornada")!, { start: "2025-01-10", end: "2025-01-10" }).doc
     const L = layout(doc, { hideSettled: ["p1"] })
     const ids = itemIds(L.rows)
     expect(ids).not.toContain("p1-robotica")
     expect(ids).toContain("p1-jornada")
     expect(L.stats.settledHidden.p1).toBe(1)
-    expect(L.stats.settledKeptOpen.p1).toHaveLength(1)
+    // Kept with a warning: the action with the forecast NF and those whose proof is still pending (V18 records).
+    expect(L.stats.settledKeptOpen.p1.some((x) => x.includes("NF prevista"))).toBe(true)
     expect(doc.items.some((i) => i.id === "p1-robotica")).toBe(true)
     const items = applyScenario(doc, "baseline")
     expect(isSettled(actionInfo(items.find((i) => i.id === "p1-robotica")!, items, doc.finRecords!, REF))).toBe(true)
@@ -208,7 +213,8 @@ describe("V8 — migration", () => {
     expect(needsMigration(v6)).toBe(true)
     const m = normalizeDoc(v6)
     expect(m.items.map((i) => i.id)).toEqual(v6.items.map((i) => i.id))
-    expect(m.finRecords!.map((f) => f.id).sort()).toEqual(["fin-t1-aquisicao", "fin-t2-aquisicao", "fin-t2-nf", "fin-t2-pagamento"])
+    expect(m.finRecords!.map((f) => f.id)).toEqual(expect.arrayContaining(["fin-t1-aquisicao", "fin-t2-aquisicao", "fin-t2-nf", "fin-t2-pagamento"]))
+    expect(new Set(m.finRecords!.map((f) => f.id)).size).toBe(m.finRecords!.length)
     const t1 = m.items.find((i) => i.id === "t1")!
     expect(t1.start).toBe("2026-02-18")
     expect(t1.revisions?.[0]).toMatchObject({ from: "2026-02-01", to: "2026-02-18" })
@@ -221,6 +227,8 @@ describe("V8 — migration", () => {
     const edited: StudioDoc = { ...seed, finRecords: [], settings: { ...seed.settings, modelVersion: 6 }, items: seed.items.map((i) => (i.id === "t1" ? { ...i, start: "2026-03-01", revisions: undefined } : i)) }
     const m = normalizeDoc(edited)
     expect(m.items.find((i) => i.id === "t1")!.start).toBe("2026-03-01")
-    expect(m.finRecords!.every((f) => f.value === null && f.proof === "pendente")).toBe(true)
+    // Only values the briefings inform are filled; nothing is marked proven.
+    expect(m.finRecords!.filter((f) => !f.sourceIds.includes("src-briefing-v18")).every((f) => f.value === null)).toBe(true)
+    expect(m.finRecords!.every((f) => f.proof === "pendente")).toBe(true)
   })
 })

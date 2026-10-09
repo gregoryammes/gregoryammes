@@ -51,11 +51,13 @@ export function buildJourney(items: EffItem[], from: number, to: number) {
       const st = STAGES[s]
       let pool = candidates.filter((i) => matches(i, st.keys) && intersect(i.range, yr))
       // A technical course started in year S is the cohort whose 1º ano técnico is S.
-      if (s === 2 || s === 3) pool = pool.filter((i) => i.dateUndetermined || ymd(i.range.start).y === c + 2)
+      // When only the years are known (precision "year"), the start year still identifies the turma.
+      if (s === 2 || s === 3) pool = pool.filter((i) => (i.dateUndetermined && i.precision !== "year") || ymd(i.range.start).y === c + 2)
       const dated = pool.filter((i) => !i.dateUndetermined)
       const item = dated.find((i) => i.certainty !== "hipotese") ?? dated[0] ?? pool[0]
       let state: CellState = "sem"
-      if (item) state = item.dateUndetermined ? "a_validar" : item.certainty === "hipotese" ? "cenario" : "registrado"
+      // A hypothesis is a scenario first; an approximate date only qualifies a record.
+      if (item) state = item.certainty === "hipotese" ? "cenario" : item.dateUndetermined ? "a_validar" : "registrado"
       let afterFrom: number | null = null
       if (item && !item.dateUndetermined && docVig) {
         const seg = intersect(item.range, yr)

@@ -13,6 +13,7 @@ import { docVigRange } from "@/lib/v6"
 import { BolsaLinksSection, ConsolidationProps, CourseTurmaSection, ProjectSummary, RevisionsSection, SituationChips } from "./PropertiesV6"
 import { ActionComponentsSection, FinProps, ParcelsSection } from "./PropertiesV8"
 import { DesignSection } from "./DesignSection"
+import { QuadrantProps } from "./QuadrantProps"
 import type { PanelTab } from "@/store/view"
 
 const CERTAINTIES = Object.keys(CERTAINTY_LABEL) as Certainty[]
@@ -25,24 +26,26 @@ export function PropertiesPanel() {
   const selection = useStudio((s) => s.selection)
   const selAnn = useStudio((s) => s.selectedAnnotation)
   const selFin = useStudio((s) => s.selectedFin)
+  const selQuad = useStudio((s) => s.selectedQuad)
   const doc = useStudio((s) => s.doc)
   const { items } = useAnalysis()
   const sel = items.filter((i) => selection.includes(i.id))
   const ann = doc.annotations.find((a) => a.id === selAnn)
   const fin = (doc.finRecords ?? []).find((f) => f.id === selFin)
-  if (!ann && !fin && sel.length === 0) return null
+  const quad = (doc.quadrants ?? []).find((q) => q.id === selQuad)
+  if (!ann && !fin && !quad && sel.length === 0) return null
   // A whole consolidated row selected → the programme view.
   const consKey = sel.length > 1 && sel[0].consolidation && sel.every((x) => x.consolidation === sel[0].consolidation) && items.filter((i) => i.consolidation === sel[0].consolidation).length === sel.length ? sel[0].consolidation : null
-  const close = () => useStudio.setState({ selection: [], selectedAnnotation: null, selectedFin: null })
+  const close = () => useStudio.setState({ selection: [], selectedAnnotation: null, selectedFin: null, selectedQuad: null })
   return (
     <aside aria-label="Propriedades" className="scroll-thin absolute inset-y-0 right-0 z-30 flex w-[312px] flex-col overflow-y-auto border-l bg-white shadow-[-12px_0_32px_-24px_rgba(15,40,70,0.35)] lg:static lg:shadow-none">
       <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-white px-4 py-2.5">
-        <span className="text-[12px] font-semibold text-muted-foreground">{fin ? "Registro financeiro" : ann ? "Anotação" : consKey ? "Programa" : sel.length > 1 ? `${sel.length} selecionados` : "Propriedades"}</span>
+        <span className="text-[12px] font-semibold text-muted-foreground">{quad ? "Quadrante" : fin ? "Registro financeiro" : ann ? "Anotação" : consKey ? "Programa" : sel.length > 1 ? `${sel.length} selecionados` : "Propriedades"}</span>
         <button aria-label="Fechar painel" title="Fechar (Esc)" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={close}>
           <X className="size-4" />
         </button>
       </div>
-      {fin ? <FinProps key={fin.id} f={fin} /> : ann ? <AnnotationProps a={ann} items={items} /> : consKey ? <ConsolidationProps consKey={consKey} /> : sel.length === 1 ? <ItemProps key={sel[0].id} it={sel[0]} /> : <Multi items={sel} />}
+      {quad ? <QuadrantProps key={quad.id} q={quad} /> : fin ? <FinProps key={fin.id} f={fin} /> : ann ? <AnnotationProps a={ann} items={items} /> : consKey ? <ConsolidationProps consKey={consKey} /> : sel.length === 1 ? <ItemProps key={sel[0].id} it={sel[0]} /> : <Multi items={sel} />}
     </aside>
   )
 }

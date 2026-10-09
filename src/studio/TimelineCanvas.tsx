@@ -7,12 +7,14 @@ import type { EffItem } from "@/lib/analysis"
 import { computeRows, BAR_H, COMP_LABEL, LABEL_W, SUB_H, type Drop, type Row } from "@/lib/layout"
 import { computeHierarchy } from "@/lib/hierarchy"
 import { computeModalities, LANE_H } from "@/lib/modalities"
+import { quadrantRange, quadrantRows, rowAtY, rowKey, rowTitle } from "@/lib/quadrants"
+import { deleteQuadrant, newQuadrant, patchQuadrant } from "@/store/quadrants"
 import { acqWarnings, finRange, finRecordsIn, paidOf, type Tag } from "@/lib/finance"
-import { C, barStyleFor, itemColor, statusOf, textWidth, truncate, wrapText, type StatusKey } from "@/lib/visual"
+import { C, barStyleFor, itemColor, statusOf, textWidth, truncate, wrapText, type BarStyle, type StatusKey } from "@/lib/visual"
 import { reorderRows, useStudio, uid, writeVisual } from "@/store/store"
 import { useCompareItems, useEffectiveItems, useProjectColor } from "@/store/hooks"
 import { useView } from "@/store/view"
-import { ACQ_STATUS_LABEL, FIN_KIND_LABEL, FIN_LABEL, GROUPS, KIND_LABEL, MODALITIES, PARCEL_LABEL, PROOF_LABEL, type Annotation, type FinRecord, type GroupId, type ModalityId, type StudioDoc } from "@/data/types"
+import { ACQ_STATUS_LABEL, FIN_KIND_LABEL, FIN_LABEL, GROUPS, KIND_LABEL, MODALITIES, PARCEL_LABEL, PROOF_LABEL, type Annotation, type FinRecord, type GroupId, type ModalityId, type Quadrant, type StudioDoc } from "@/data/types"
 import { FinanceColumn, FIN_COL_W } from "./FinanceColumn"
 import { BlockMenu, InlineLabel } from "./CanvasOverlays"
 import { docVigRange, offeringLabel, relatedToTurmas, shortNameOf, TEMPORAL_LABEL, temporalSituation, turmasOf } from "@/lib/v6"
@@ -50,6 +52,9 @@ type Gesture =
   | { type: "marquee"; sx: number; sy: number; cx: number; cy: number; additive: boolean }
   | { type: "ann"; id: string; sx: number; sy: number; date: number; y: number; offset: number; linked: boolean; began: boolean }
   | { type: "hscroll"; sx: number; x0: number }
+  | { type: "quad-new"; sx: number; sy: number; cx: number; cy: number }
+  | { type: "quad-move"; id: string; sx: number; sy: number; start: number; end: number; from: number; to: number; began: boolean }
+  | { type: "quad-l" | "quad-r"; id: string; sx: number; start: number; end: number; began: boolean }
 
 const shortMonth = (day: number) => {
   const t = ymd(day)
@@ -63,6 +68,7 @@ export function TimelineCanvas() {
   const selection = useStudio((s) => s.selection)
   const selectedAnnotation = useStudio((s) => s.selectedAnnotation)
   const selectedFin = useStudio((s) => s.selectedFin)
+  const selectedQuad = useStudio((s) => s.selectedQuad)
   const scenarioId = useStudio((s) => s.scenarioId)
   const view = useView()
   const colorOf = useProjectColor()
@@ -144,6 +150,23 @@ export function TimelineCanvas() {
   )
   const projects = visible.filter((i) => i.kind === "projeto" && !(i.projectId && hiddenProjects.includes(i.projectId)))
   const allItemRows = layout.itemRows ?? layout.rows.filter((r): r is Extract<Row, { type: "item" }> => r.type === "item")
+  // Row anchors for quadrants: published for the properties panel (key + readable title).
+  const rowIndex = useMemo(() => layout.rows.filter((r) => r.type !== "note").map((r) => ({ key: rowKey(r), title: rowTitle(r, doc) })), [layout, doc])
+  useEffect(() => {
+    const cur = useView.getState().rowIndex
+    if (cur.length !== rowIndex.length || cur.some((c, i) => c.key !== rowIndex[i].key || c.title !== rowIndex[i].title)) useView.getState().set({ rowIndex })
+  }, [rowIndex])
+  const quads = useMemo(
+    () =>
+      [...(doc.quadrants ?? [])]
+        .filter((q) => !q.hidden)
+        .sort((a, b) => a.layer - b.layer)
+        .map((q) => ({ q, range: quadrantRange(q, items), rows: quadrantRows(q, layout.rows, layout.total) }))
+        .filter((x) => x.range),
+    [doc.quadrants, items, layout],
+  )
+  // The built-in "after the vigência" tint steps aside when a quadrant already shows it.
+  const afterQuad = quads.some((x) => x.q.mode === "auto" && x.q.rule?.kind === "after_vigencia" && x.q.rule.projectId === "p2")
   const vig = items.find((i) => i.kind === "vigencia" && i.projectId === "p2") ?? items.find((i) => i.kind === "vigencia")
   // The documental marker is read from the baseline records, never from the active scenario.
   const docVig: DayRange | null = docVigRange(doc)
@@ -153,7 +176,7 @@ export function TimelineCanvas() {
     (filter.length > 0 && !filter.includes(it.projectId ?? "")) ||
     (turmaFilter.length > 0 && turmaFilterMode === "dim" && it.kind !== "vigencia" && it.kind !== "projeto" && !relatedToTurmas(doc, it, turmaFilter))
 
-  // ── Measure; first open shows 2025–2028 ──────────────────────────────────
+  // ── Measure; first open shows 2023–2030 ──────────────────────────────────
   useEffect(() => {
     const el = wrapRef.current
     if (!el) return
@@ -166,7 +189,7 @@ export function TimelineCanvas() {
       const r = useView.getState().range
       if (!fitted.current) {
         fitted.current = true
-        useView.getState().setRange(r?.from ?? 2025, r?.to ?? 2028)
+        useView.getState().setRange(r?.from ?? 2023, r?.to ?? 2030)
       } else if (r) useView.getState().fit(dayOf(r.from, 1), dayOf(r.to + 1, 1))
     })
     ro.observe(el)
@@ -222,7 +245,14 @@ export function TimelineCanvas() {
         e.preventDefault()
         st.save()
       } else if (e.key === "Delete" || e.key === "Backspace") {
-        if (st.selectedAnnotation) {
+        if (st.selectedQuad) {
+          const id = st.selectedQuad
+          confirmAction("Excluir o quadrante selecionado? Só o destaque visual é removido (é possível desfazer).").then((ok) => {
+            if (!ok) return
+            st.commit("excluir quadrante", (d) => deleteQuadrant(d, id))
+            st.selectQuad(null)
+          })
+        } else if (st.selectedAnnotation) {
           const id = st.selectedAnnotation
           confirmAction("Excluir a anotação selecionada?").then((ok) => ok && st.deleteAnnotation(id))
         } else if (st.selection.length) {
@@ -242,6 +272,7 @@ export function TimelineCanvas() {
       else if (!mod && k === "h") useView.getState().set({ tool: "hand" })
       else if (!mod && k === "n") useView.getState().set({ tool: "note" })
       else if (!mod && k === "c") useView.getState().set({ tool: "connect", connectFrom: null })
+      else if (!mod && k === "q") useView.getState().set({ tool: "quadrant" })
     }
     const up = (e: KeyboardEvent) => e.code === "Space" && setSpaceDown(false)
     window.addEventListener("keydown", down)
@@ -310,7 +341,13 @@ export function TimelineCanvas() {
     const st = useStudio.getState()
     const v = useView.getState()
     const p = local(e)
-    const hit = (e.target as Element).closest<SVGElement>("[data-hit]")
+    let hit = (e.target as Element).closest<SVGElement>("[data-hit]")
+    // Adjacent bars on one line (Técnico 1 ends where Técnico 2 starts) overlap at their edges:
+    // the resize handle of a selected item wins over its neighbour.
+    if (hit?.dataset.hit?.startsWith("item") && st.selection.length) {
+      const pref = document.elementsFromPoint(e.clientX, e.clientY).find((el): el is SVGElement => el instanceof SVGElement && (el.dataset.hit === "item-l" || el.dataset.hit === "item-r") && st.selection.includes(el.dataset.id ?? ""))
+      if (pref) hit = pref
+    }
     const kind = hit?.dataset.hit
     const id = hit?.dataset.id ?? ""
     // Selecting may open the properties drawer and shift the canvas: remember what was pressed.
@@ -334,6 +371,27 @@ export function TimelineCanvas() {
       return
     }
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
+
+    // Quadrants: draw with the tool; the title chip selects and moves; the edges resize.
+    if (v.tool === "quadrant" && p.x > LABEL_W && p.y > BODY_TOP) {
+      gesture.current = { type: "quad-new", sx: p.x, sy: p.y, cx: p.x, cy: p.y }
+      return
+    }
+    if (kind === "quad" || kind === "quad-l" || kind === "quad-r") {
+      const q = (doc.quadrants ?? []).find((x) => x.id === id)
+      const qr = quads.find((x) => x.q.id === id)
+      st.selectQuad(id)
+      if (!q || !qr?.range) return
+      if (q.locked) return
+      if (q.mode === "auto") {
+        if (kind !== "quad") st.toast("Quadrante automático: segue a regra e o cenário. Converta para manual no painel para movê-lo.", "info")
+        return
+      }
+      const keys = layout.rows.map(rowKey)
+      if (kind === "quad") gesture.current = { type: "quad-move", id, sx: p.x, sy: p.y, start: qr.range.start, end: qr.range.end, from: q.rowFrom ? keys.indexOf(q.rowFrom) : -1, to: q.rowTo ? keys.indexOf(q.rowTo) : -1, began: false }
+      else gesture.current = { type: kind, id, sx: p.x, start: qr.range.start, end: qr.range.end, began: false }
+      return
+    }
 
     if (e.button === 1 || spaceDown || v.tool === "hand" || (!hit && v.tool === "select" && !e.shiftKey)) {
       gesture.current = { type: "pan", sx: p.x, sy: p.y, x0: v.x0, scrollY: v.scrollY, moved: false }
@@ -495,6 +553,43 @@ export function TimelineCanvas() {
       }
       showRangeHint(p, { start: anchor.start + delta, end: anchor.end + delta }, anchor)
     }
+    if (g.type === "quad-new") {
+      g.cx = p.x
+      g.cy = p.y
+      force((n) => n + 1)
+      return
+    }
+    if (g.type === "quad-move" || g.type === "quad-l" || g.type === "quad-r") {
+      const raw = (p.x - g.sx) / ppd
+      let start = g.start
+      let end = g.end
+      if (g.type === "quad-move") {
+        const delta = snapBoundary(g.start + raw, snap) - g.start
+        start += delta
+        end += delta
+      } else if (g.type === "quad-r") end = Math.max(start + 1, snapBoundary(g.end + raw, snap))
+      else start = Math.min(end - 1, snapBoundary(g.start + raw, snap))
+      const patch: Partial<Quadrant> = { start: fromDay(start), end: fromDay(end - 1) }
+      // Vertical drag moves an anchored quadrant by whole rows.
+      if (g.type === "quad-move" && g.from >= 0 && g.to >= 0) {
+        const rowsNow = layout.rows
+        const target = rowAtY(rowsNow, bodyY(p.y))
+        const origin = rowAtY(rowsNow, bodyY(g.sy))
+        const dRows = target && origin ? rowsNow.indexOf(target) - rowsNow.indexOf(origin) : 0
+        const f = Math.max(0, Math.min(rowsNow.length - 1, g.from + dRows))
+        const t = Math.max(0, Math.min(rowsNow.length - 1, g.to + dRows))
+        patch.rowFrom = rowKey(rowsNow[f])
+        patch.rowTo = rowKey(rowsNow[t])
+      }
+      if (!g.began) {
+        if (Math.abs(p.x - g.sx) < 3 && (g.type !== "quad-move" || Math.abs(p.y - g.sy) < 3)) return
+        st.begin(g.type === "quad-move" ? "mover quadrante" : "redimensionar quadrante")
+        g.began = true
+      }
+      st.live((d) => patchQuadrant(d, g.id, patch))
+      showRangeHint(p, { start, end }, { start: g.start, end: g.end })
+      return
+    }
     if (g.type === "hscroll") {
       const span = EXTENT_END - EXTENT_START
       const trackW = size.w - LABEL_W
@@ -545,6 +640,30 @@ export function TimelineCanvas() {
       return
     }
     if (g.type === "hscroll") return
+    if (g.type === "quad-new") {
+      const x1 = Math.max(LABEL_W, Math.min(g.sx, g.cx))
+      const x2 = Math.max(g.sx, g.cx)
+      force((n) => n + 1)
+      if (x2 - x1 < 6) return
+      const s0 = snapBoundary(dayAt(x1), settings.snap)
+      const e0 = Math.max(s0 + 1, snapBoundary(dayAt(x2), settings.snap))
+      const ra = rowAtY(layout.rows, bodyY(Math.min(g.sy, g.cy)))
+      const rb = rowAtY(layout.rows, bodyY(Math.max(g.sy, g.cy)))
+      const tall = Math.abs(g.cy - g.sy) < 12
+      let created = ""
+      st.commit("criar quadrante", (d) => {
+        const r = newQuadrant(d, { start: fromDay(s0), end: fromDay(e0 - 1), rowFrom: tall || !ra ? null : rowKey(ra), rowTo: tall || !rb ? null : rowKey(rb) })
+        created = r.id
+        return r.doc
+      })
+      useView.getState().set({ tool: "select" })
+      if (created) st.selectQuad(created)
+      return
+    }
+    if (g.type === "quad-move" || g.type === "quad-l" || g.type === "quad-r") {
+      if (g.began) st.end()
+      return
+    }
     if (g.began) {
       if (g.type === "resize-l" || g.type === "resize-r") {
         const it = visible.find((i) => i.id === g.id)
@@ -598,8 +717,9 @@ export function TimelineCanvas() {
 
   const g = gesture.current
   const marquee = g && g.type === "marquee" ? g : null
+  const quadDraft = g && g.type === "quad-new" ? g : null
   const dropLine = g && g.type === "move" && g.drop ? g.drop : null
-  const cursor = spaceDown || view.tool === "hand" ? "grab" : view.tool === "note" ? "copy" : view.tool === "connect" ? "crosshair" : "default"
+  const cursor = spaceDown || view.tool === "hand" ? "grab" : view.tool === "note" ? "copy" : view.tool === "connect" || view.tool === "quadrant" ? "crosshair" : "default"
   const timeW = size.w - LABEL_W
 
   const hoverItem = hover ? byId.get(hover.id) : undefined
@@ -660,7 +780,7 @@ export function TimelineCanvas() {
         {/* ── Body ─────────────────────────────────────────────────────── */}
         <g clipPath="url(#clip-body)">
           {/* After the documental vigência: very light red, never hiding the bars */}
-          {docVig && <rect x={X(docVig.end)} y={BODY_TOP} width={Math.max(0, size.w - X(docVig.end))} height={bodyH} fill={C.afterSoft} />}
+          {docVig && !afterQuad && <rect x={X(docVig.end)} y={BODY_TOP} width={Math.max(0, size.w - X(docVig.end))} height={bodyH} fill={C.afterSoft} />}
           {hier && ProjectTints()}
           {layout.rows.map((r, i) =>
             r.type === "heading" ? (
@@ -675,6 +795,7 @@ export function TimelineCanvas() {
               <rect key={`z${i}`} x={LABEL_W} y={Y(r.top)} width={timeW} height={r.h} fill={C.zebra} fillOpacity={0.75} />
             ) : null,
           )}
+          {QuadrantLayer()}
           {/* Grid */}
           {months.map((m, i) => (
             <line key={`gm${i}`} x1={X(m.day)} x2={X(m.day)} y1={BODY_TOP} y2={size.h} stroke={C.gridSoft} />
@@ -798,7 +919,7 @@ export function TimelineCanvas() {
             const x2 = X(dayOf(y + 1, 1))
             const skip = (yearW < 46 && y % 2 === 1) || Math.min(x2, size.w) - Math.max(x1, LABEL_W) < 40
             return (
-              <g key={`hy${y}`}>
+              <g key={`hy${y}`} data-ruler="year" data-year={y}>
                 <rect x={x1 + 1} y={PROJ_H} width={Math.max(0, x2 - x1 - 2)} height={YEAR_H - 2} fill="#E6EBF1" />
                 {!skip && (
                   <text x={(Math.max(x1, LABEL_W) + Math.min(x2, size.w)) / 2} y={PROJ_H + 17} fontSize={14} fontWeight={700} fill={C.text} textAnchor="middle">{y}</text>
@@ -807,7 +928,7 @@ export function TimelineCanvas() {
             )
           })}
           {halves.map((h, i) => (
-            <g key={`hs${i}`}>
+            <g key={`hs${i}`} data-ruler="sem">
               <rect x={X(h.day) + 1} y={PROJ_H + YEAR_H} width={Math.max(0, X(h.end) - X(h.day) - 2)} height={SEM_H - 2} fill="#F1F4F8" />
               {X(h.end) - X(h.day) > 26 && (
                 <text x={X(h.day) + (X(h.end) - X(h.day)) / 2} y={PROJ_H + YEAR_H + 14} fontSize={11.5} fontWeight={600} fill={C.text2} textAnchor="middle">{h.label}</text>
@@ -818,7 +939,7 @@ export function TimelineCanvas() {
             const w = X(addMonths(m.day, 1)) - X(m.day)
             const isAfter = docVig && m.day >= docVig.end
             return (
-              <g key={`hm${i}`}>
+              <g key={`hm${i}`} data-ruler="month" data-x={X(m.day)}>
                 {isAfter && <rect x={X(m.day)} y={HEADER - MONTH_H - 4} width={w} height={MONTH_H} fill={C.afterSoft} />}
                 {m.label && (
                   <text x={X(m.day) + w / 2} y={HEADER - 9} fontSize={9.5} fontFamily="JetBrains Mono, monospace" fill={docVig && m.day === docVig.end ? C.vigLine : "#8796A8"} fontWeight={docVig && m.day === docVig.end ? 800 : 500} textAnchor="middle">
@@ -834,8 +955,11 @@ export function TimelineCanvas() {
           {docVig && <line x1={X(docVig.end)} x2={X(docVig.end)} y1={PROJ_H + YEAR_H} y2={HEADER} stroke={C.vigLine} strokeWidth={2.5} />}
         </g>
         {/* Header corner: the page's title block */}
-        <text x={18} y={26} fontSize={17} fontWeight={800} fill={C.text} fontFamily="Inter Tight, Inter, sans-serif">Tempo: Vigência x Projeto</text>
-        <text x={18} y={44} fontSize={11.5} fill={C.text2}>SKA Tech Hub — Projetos 1, 2 e 3</text>
+        <text fontFamily="Inter Tight, Inter, sans-serif" fill={C.text}>
+          <tspan x={18} y={24} fontSize={15} fontWeight={800}>SKA Tech Hub — Evolução</tspan>
+          <tspan x={18} y={42} fontSize={15} fontWeight={800}>dos Projetos e da Formação</tspan>
+        </text>
+        <text x={18} y={62} fontSize={11} fill={C.text2}>Projetos 1, 2 e 3 • Cursos • Turmas • Investimentos</text>
         <line x1={0} x2={size.w} y1={HEADER} y2={HEADER} stroke={C.grid} />
 
         {/* Horizontal scrollbar over the whole horizon */}
@@ -857,6 +981,10 @@ export function TimelineCanvas() {
           />
         </g>
 
+        {quadDraft && (
+          <rect x={Math.max(LABEL_W, Math.min(quadDraft.sx, quadDraft.cx))} y={Math.min(quadDraft.sy, quadDraft.cy)} width={Math.abs(quadDraft.cx - quadDraft.sx)} height={Math.max(4, Math.abs(quadDraft.cy - quadDraft.sy))}
+            fill={C.blue} fillOpacity={0.08} stroke={C.blue} strokeWidth={1.5} strokeDasharray="6 4" pointerEvents="none" />
+        )}
         {marquee && (
           <rect x={Math.min(marquee.sx, marquee.cx)} y={Math.min(marquee.sy, marquee.cy)} width={Math.abs(marquee.cx - marquee.sx)} height={Math.abs(marquee.cy - marquee.sy)}
             fill={C.blue} fillOpacity={0.08} stroke={C.blue} strokeDasharray="4 3" pointerEvents="none" />
@@ -1024,7 +1152,10 @@ export function TimelineCanvas() {
     if (x2 < LABEL_W - 60 || x1 > size.w + 60) return null
     const w = Math.max(2, x2 - x1)
     const status = r.virtual ? ("cenario" as StatusKey) : docRow ? "previsto" : statusOf(it, refDay).key
-    const bs0 = barStyleFor(status, color)
+    // Approximate period (only the year is known): a soft bar with a dashed outline and "≈" —
+    // readable in the macro view, never mistaken for a dated record.
+    const approx = !!it.dateUndetermined && it.kind !== "marco"
+    const bs0 = approx ? approxStyle(status, color) : barStyleFor(status, color)
     // A proposed project keeps its identity colour (dashed); purple-indigo marks scenario changes only.
     if (it.kind === "projeto" && status === "cenario") bs0.stroke = color
     // Design tab: appearance only — never dates, status or values.
@@ -1039,28 +1170,6 @@ export function TimelineCanvas() {
     const fsz = sty.size ?? (r.thin ? 10.5 : 11.5)
     const gOpacity = (dim ? 0.3 : 1) * (sty.opacity ?? 1)
 
-    // Historic action without a dated source: an approximate interval, never a solid bar.
-    if (it.dateUndetermined) {
-      const mid = (Math.max(x1, LABEL_W) + Math.min(x2, size.w)) / 2
-      const label = "data a validar"
-      const tags = r.info?.tags ?? []
-      return (
-        <g opacity={dim ? 0.3 : 1} onPointerEnter={enter} onPointerLeave={leave}>
-          <rect data-hit="item" data-id={it.id} x={x1} y={by} width={w} height={BH} fill="transparent" style={{ cursor: "grab" }} />
-          <line x1={x1} x2={x2} y1={cy} y2={cy} stroke={C.plan} strokeWidth={2} strokeDasharray="2 4" pointerEvents="none" />
-          <line x1={x1} x2={x1} y1={cy - 6} y2={cy + 6} stroke={C.plan} strokeWidth={2} pointerEvents="none" />
-          <line x1={x2} x2={x2} y1={cy - 6} y2={cy + 6} stroke={C.plan} strokeWidth={2} pointerEvents="none" />
-          <g pointerEvents="none">
-            <rect x={mid - 52} y={cy - 10} width={104} height={20} rx={10} fill="#FFFFFF" stroke="#C9D3DE" />
-            <text x={mid} y={cy + 4} fontSize={11} fontWeight={600} fill={C.text2} textAnchor="middle">{label}</text>
-          </g>
-          {tags.length > 0 && (r.compact ? Tags({ x: Math.max(x1, LABEL_W) + 10, y: cy - 8.5, tags: tags.slice(0, 1), maxX: mid - 56 }) : Tags({ x: x2 + 10, y: cy - 8.5, tags, maxX: size.w - 8 }))}
-          {ClipMarks({ x1, x2, y: by, h: BH, fill: C.plan })}
-          {isSel && <rect x={x1 - 2} y={by - 2} width={w + 4} height={BH + 4} rx={4} fill="none" stroke={C.selection} strokeWidth={2} pointerEvents="none" />}
-        </g>
-      )
-    }
-
     if (it.kind === "marco") {
       return (
         <g opacity={dim ? 0.3 : 1} onPointerEnter={enter} onPointerLeave={leave}>
@@ -1072,26 +1181,36 @@ export function TimelineCanvas() {
     }
 
     // Part after the documental vigência (calendar fact — not a statement about coverage).
-    const after = docVig && !r.virtual && !docRow && it.kind !== "vigencia" && it.kind !== "projeto" && it.kind !== "planejamento" ? partAfter(range, docVig) : null
+    const after = docVig && !approx && !r.virtual && !docRow && it.kind !== "vigencia" && it.kind !== "projeto" && it.kind !== "planejamento" ? partAfter(range, docVig) : null
     const afterMonths = after ? calendarMonthsTouched(after) : 0
     const afterW = after ? X(after.end) - X(after.start) : 0
     const shortDates = `${shortMonth(range.start)} – ${shortMonth(range.end - 1)}`
     const room = (after ? X(after.start) : x2) - Math.max(x1, LABEL_W) - 16
+    const years = (() => {
+      const a = ymd(range.start).y
+      const b = ymd(range.end - 1).y
+      return a === b ? `${a}` : `${a}–${b}`
+    })()
+    const approxShort = it.kind === "curso" ? shortNameOf(it) : (it.shortName ?? it.name)
     const innerLabel =
-      r.virtual ? `até ${fmtDate(fromDay(range.end - 1))} · cenário`
+      approx ? fitOr([`≈ ${approxShort}${approxShort.includes(years) ? "" : ` · ${years}`} · datas a validar`, `≈ ${approxShort}${approxShort.includes(years) ? "" : ` · ${years}`}`, `≈ ${approxShort}`], room - (it.kind === "curso" && r.toggle ? 18 : 0), `≈ ${approxShort}`)
+      : r.virtual ? `até ${fmtDate(fromDay(range.end - 1))} · cenário`
       : docRow ? `até ${fmtDate(fromDay(range.end - 1))} · referência documental`
       : it.kind === "vigencia" ? `até ${fmtDate(fromDay(range.end - 1))}`
-      : it.kind === "curso" ? pickFit(r.compact ? [offeringLabel(doc, it, false), shortNameOf(it), shortDates] : [offeringLabel(doc, it, true), offeringLabel(doc, it, false), shortDates], room - (r.toggle ? 18 : 0))
-      : it.shortName ? pickFit([`${it.shortName} · ${shortDates}`, shortDates], room)
+      : it.kind === "curso" ? (r.compact ? fitOr([offeringLabel(doc, it, false), shortNameOf(it)], room - 18, shortNameOf(it)) : pickFit([offeringLabel(doc, it, true), offeringLabel(doc, it, false), shortDates], room - (r.toggle ? 18 : 0)))
+      : it.shortName ? (r.compact ? fitOr([`${it.shortName} · ${shortDates}`, it.shortName], room, it.shortName) : pickFit([`${it.shortName} · ${shortDates}`, shortDates], room))
       : shortDates
     const fitsInside = textWidth(innerLabel, fsz) < room
     const narrow = w < 12
     const showAfterLabel = after && (it.kind === "curso" || it.kind === "turma" || isSel)
-    const hasToggle = !!r.compact && !!r.toggle && !narrow && w > 30
-    const labelX = Math.max(x1, LABEL_W) + 9 + (hasToggle ? 18 : 0)
+    // Courses always show their expand button; other actions only on hover/selection (less noise).
+    const courseToggle = it.kind === "curso"
+    const hasToggle = !!r.compact && !!r.toggle && !narrow && w > 30 && (courseToggle || isSel || hover?.id === it.id || !!r.expanded)
+    const labelX = Math.max(x1, LABEL_W) + 9 + (hasToggle && (courseToggle || r.expanded) ? 18 : 0)
     // Tags sit next to the label, inside the bar when there is room, otherwise after it.
     // In the modality view only the acquisition indicator is shown; details live in the hover.
-    const tags = r.compact ? (r.info?.tags ?? []).slice(0, 1) : (r.info?.tags ?? [])
+    // Macro view: the carimbo financeiro is a corner badge (below); no other tag on the bar.
+    const tags = r.compact ? [] : (r.info?.tags ?? [])
     const tagsInside = fitsInside ? labelX + textWidth(innerLabel, fsz) + 10 : null
     // Only the visible part of the after-vigência stretch can hold its label.
     const afterVis = after ? Math.min(X(after.end), size.w) - Math.max(X(after.start), LABEL_W) : 0
@@ -1115,7 +1234,7 @@ export function TimelineCanvas() {
             <text x={x1 + w / 2 + 11} y={cy + 4} fontSize={fsz} fill={C.text2} pointerEvents="none">{shortDates}</text>
           </>
         ) : (
-          <rect data-hit={hitKind} data-id={it.id} x={x1} y={by} width={w} height={BH} rx={rx}
+          <rect data-hit={hitKind} data-id={it.id} data-approx={approx ? "" : undefined} x={x1} y={by} width={w} height={BH} rx={rx}
             fill={bs.fill} fillOpacity={sty.fill ? 1 : bs.fillOpacity} stroke={bs.stroke} strokeWidth={bs.strokeWidth} strokeDasharray={bs.dash}
             style={{ cursor: it.locked || docRow ? "pointer" : "grab" }} />
         )}
@@ -1138,6 +1257,7 @@ export function TimelineCanvas() {
             <title>{r.expanded ? "Recolher componentes" : "Expandir: aquisição, bolsas, NF e materiais"}</title>
           </g>
         )}
+        {r.compact && r.stamp && !narrow && StampBadge({ x1, x2, y: by - 7, stamp: r.stamp, id: it.id })}
         {tags.length > 0 && !r.thin && Tags({ x: fitsInside || after ? tagX : Math.max(tagX, x2 + 10 + (fitsInside ? 0 : textWidth(innerLabel, fsz) + 8)), y: cy - 8.5, tags, maxX: tagLimit })}
         {status === "concluido" && w > 30 && <path d={`M${x2 - 18},${cy} l4,4 l8,-8`} stroke="#FFFFFF" strokeWidth={2} fill="none" pointerEvents="none" />}
         {afterText && (
@@ -1313,6 +1433,56 @@ export function TimelineCanvas() {
     )
   }
 
+  /**
+   * Quadrants: tinted areas over a period and a band of rows, drawn under bars and texts. The title
+   * chip is the handle (select, move); a selected manual quadrant shows its edge handles.
+   */
+  function QuadrantLayer() {
+    // Title chips of overlapping quadrants stack instead of covering each other.
+    const chips: { x: number; y: number; w: number }[] = []
+    return (
+      <g data-quadrants="">
+        {quads.map(({ q, range, rows }) => {
+          const x1 = X(range!.start)
+          const x2 = X(range!.end)
+          if (x2 < LABEL_W || x1 > size.w) return null
+          const y1 = Y(rows.top)
+          const y2 = Y(rows.bottom)
+          const isSelQ = selectedQuad === q.id
+          const sc = q.strokeColor ?? q.color
+          const ink = mix(sc, "#000000", 0.42)
+          const tw = textWidth(q.title, 11) + 18
+          const tx = Math.max(x1, LABEL_W) + 6
+          let ty = Math.max(y1, BODY_TOP) + 4
+          while (chips.some((c) => Math.abs(c.y - ty) < 20 && tx < c.x + c.w && c.x < tx + tw)) ty += 22
+          chips.push({ x: tx, y: ty, w: tw })
+          return (
+            <g key={q.id} data-quadrant={q.id}>
+              <rect x={x1} y={y1} width={Math.max(1, x2 - x1)} height={Math.max(1, y2 - y1)} fill={q.color} fillOpacity={q.opacity}
+                stroke={q.stroke === "none" ? (isSelQ ? C.selection : "none") : sc} strokeOpacity={q.stroke === "none" ? 1 : 0.75} strokeWidth={isSelQ ? 2 : 1.2}
+                strokeDasharray={q.stroke === "dashed" || (isSelQ && q.stroke === "none") ? "6 4" : undefined} pointerEvents="none" />
+              {(q.showTitle !== false || isSelQ) && Math.min(x2, size.w) - tx > 30 && (
+                <g data-hit="quad" data-id={q.id} style={{ cursor: q.locked || q.mode === "auto" ? "pointer" : "move" }}>
+                  <rect x={tx} y={ty} width={Math.min(tw, Math.max(40, Math.min(x2, size.w) - tx - 4))} height={18} rx={4} fill="#FFFFFF" fillOpacity={0.94} stroke={isSelQ ? C.selection : sc} strokeOpacity={isSelQ ? 1 : 0.55} />
+                  <text x={tx + 8} y={ty + 12.5} fontSize={11} fontWeight={700} fill={ink}>{truncate(q.title, Math.min(x2, size.w) - tx - 20, 11)}</text>
+                  <title>{`${q.title}${q.description ? ` — ${q.description}` : ""}\n${q.mode === "auto" ? "Automático (segue a regra e o cenário)" : "Manual (só destaque visual)"}${q.locked ? " · bloqueado" : ""}`}</title>
+                </g>
+              )}
+              {isSelQ && q.mode === "manual" && !q.locked && (
+                <>
+                  <rect data-hit="quad-l" data-id={q.id} x={x1 - 5} y={y1} width={10} height={Math.max(1, y2 - y1)} fill="transparent" style={{ cursor: "ew-resize" }} />
+                  <rect data-hit="quad-r" data-id={q.id} x={x2 - 5} y={y1} width={10} height={Math.max(1, y2 - y1)} fill="transparent" style={{ cursor: "ew-resize" }} />
+                  <rect x={x1 - 3} y={(y1 + y2) / 2 - 12} width={6} height={24} rx={2} fill="#FFFFFF" stroke={C.selection} strokeWidth={1.5} pointerEvents="none" />
+                  <rect x={x2 - 3} y={(y1 + y2) / 2 - 12} width={6} height={24} rx={2} fill="#FFFFFF" stroke={C.selection} strokeWidth={1.5} pointerEvents="none" />
+                </>
+              )}
+            </g>
+          )
+        })}
+      </g>
+    )
+  }
+
   /** Several records on one row, each at its real dates, in sub-lanes when they overlap. */
   function LaneBars({ r }: { r: Extract<Row, { type: "lane" }> }) {
     const top = Y(r.top)
@@ -1329,7 +1499,7 @@ export function TimelineCanvas() {
     return (
       <g>
         {r.members.map((m) => (
-          <g key={m.item.id}>{ItemBar({ r: { type: "item", group: r.group, top: r.top + 6 + m.lane * LANE_H, h: LANE_H, item: m.item, index: r.index, info: m.info, toggle: m.toggle, expanded: m.expanded, compact: true } })}</g>
+          <g key={m.item.id}>{ItemBar({ r: { type: "item", group: r.group, top: r.top + 6 + m.lane * LANE_H, h: LANE_H, item: m.item, index: r.index, info: m.info, toggle: m.toggle, expanded: m.expanded, compact: true, stamp: m.stamp } })}</g>
         ))}
       </g>
     )
@@ -1523,6 +1693,26 @@ export function TimelineCanvas() {
     return <g pointerEvents="none" data-tags="">{out}</g>
   }
 
+  /**
+   * Carimbo financeiro: a small badge on the bar's top-right corner. Its text comes from the linked
+   * financial records (never from the bar colour).
+   */
+  function StampBadge({ x1, x2, y, stamp, id }: { x1: number; x2: number; y: number; stamp: Tag; id: string }) {
+    const w = textWidth(stamp.label, 9.5) + 12
+    const right = Math.min(x2, size.w - 4)
+    let x = right - w - 6
+    if (x < Math.max(x1, LABEL_W) + 4) x = Math.max(x1, LABEL_W) + 4
+    const pal = TAG_PALETTE[stamp.tone]
+    return (
+      <g pointerEvents="none" data-stamp={id} transform={`translate(${x},${y})`}>
+        <rect width={w} height={15} rx={4} fill="#FFFFFF" stroke={pal.bd} />
+        <rect width={w} height={15} rx={4} fill={pal.bg} fillOpacity={0.9} />
+        <text x={w / 2} y={11} fontSize={9.5} fontWeight={800} fill={pal.fg} textAnchor="middle" letterSpacing={0.2}>{stamp.label}</text>
+        {stamp.title && <title>{stamp.title}</title>}
+      </g>
+    )
+  }
+
   /** Financial / documentary components as markers at their real dates — never stretched. */
   function CompBar({ r }: { r: Extract<Row, { type: "comp" }> }) {
     const top = Y(r.top)
@@ -1696,7 +1886,23 @@ const FONT_FAMILY: Record<string, string> = {
   serif: "Georgia, serif",
 }
 
+/** Mix two hex colours (t = share of b). */
+function mix(a: string, b: string, t: number) {
+  const pa = parseInt(a.slice(1), 16)
+  const pb = parseInt(b.slice(1), 16)
+  const ch = (sh: number) => Math.round(((pa >> sh) & 255) * (1 - t) + ((pb >> sh) & 255) * t)
+  return `#${((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, "0")}`
+}
+
+/** Approximate period styles: same identity colour, lighter, dashed outline. */
+function approxStyle(status: StatusKey, color: string): BarStyle {
+  if (status === "cenario") return { fill: "#FFFFFF", fillOpacity: 1, stroke: color, strokeWidth: 1.5, dash: "5 4", text: C.text }
+  if (status === "planejado" || status === "nao_confirmado") return { fill: color, fillOpacity: 0.1, stroke: color, strokeWidth: 1.3, dash: "4 3", text: C.text }
+  return { fill: color, fillOpacity: 0.3, stroke: color, strokeWidth: 1.3, dash: "4 3", text: C.text }
+}
+
 const TAG_PALETTE: Record<Tag["tone"], { bg: string; fg: string; bd: string }> = {
+  proposal: { bg: "#F4F0FB", fg: "#5B4A86", bd: "#C9BCE3" },
   paid: { bg: "#E7F4EE", fg: "#1C6B4B", bd: "#9FD3BB" },
   pending: { bg: "#FFF3E6", fg: "#9A4A08", bd: "#F6C99A" },
   plan: { bg: "#F1F4F8", fg: "#475569", bd: "#CBD5E1" },
@@ -1723,6 +1929,9 @@ function projectRole(it: EffItem | undefined, ref: number) {
   if (it.range.end <= ref) return "Histórico"
   return "Ciclo atual"
 }
+
+/** First label that fits; otherwise the fallback, truncated (a name is better than dates). */
+const fitOr = (labels: string[], room: number, fallback: string) => labels.find((l) => textWidth(l, 11.5) < room) ?? truncate(fallback, Math.max(0, room), 11.5)
 
 /** First label that fits the available width. */
 const pickFit = (labels: string[], room: number) => labels.find((l) => textWidth(l, 11.5) < room) ?? labels[labels.length - 1]

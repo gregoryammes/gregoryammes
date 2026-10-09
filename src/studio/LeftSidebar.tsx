@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { ChevronDown, ChevronRight, Copy, Lock, PanelLeftClose, PanelLeftOpen, Plus, RotateCcw, Trash2 } from "lucide-react"
+import { ChevronDown, ChevronRight, Copy, Eye, EyeOff, Lock, PanelLeftClose, PanelLeftOpen, Plus, RotateCcw, Trash2, Unlock } from "lucide-react"
 import { Button, Chip } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { toDay } from "@/lib/dates"
@@ -133,6 +133,7 @@ function Elements({ onCreate }: { onCreate: (kind: ItemKind) => void }) {
           </div>
         )
       })}
+      <QuadrantLayers />
       <div className="space-y-2 px-3 py-3 text-[11.5px] text-muted-foreground">
         <div className="flex items-center justify-between">
           <span>{doc.annotations.length} anotações · {doc.links.length} conexões</span>
@@ -147,6 +148,46 @@ function Elements({ onCreate }: { onCreate: (kind: ItemKind) => void }) {
           />
         </label>
       </div>
+    </div>
+  )
+}
+
+/** Camadas: the visual quadrants, top layer first. Eye and lock act on the highlight only. */
+function QuadrantLayers() {
+  const doc = useStudio((s) => s.doc)
+  const st = useStudio()
+  const sel = useStudio((s) => s.selectedQuad)
+  const [open, setOpen] = useState(true)
+  const list = [...(doc.quadrants ?? [])].sort((a, b) => b.layer - a.layer)
+  return (
+    <div className="border-b border-border/60">
+      <div className="group flex items-center gap-1 px-2 pt-2 pb-1.5">
+        <button className="flex flex-1 items-center gap-1.5 text-left text-[12px] font-semibold text-foreground" onClick={() => setOpen(!open)} aria-expanded={open}>
+          {open ? <ChevronDown className="size-3.5 text-muted-foreground" /> : <ChevronRight className="size-3.5 text-muted-foreground" />}
+          Quadrantes <span className="font-normal text-muted-foreground">{list.length}</span>
+        </button>
+        <button title="Desenhar quadrante (Q)" aria-label="Novo quadrante" className="rounded p-0.5 text-muted-foreground opacity-70 hover:bg-muted hover:text-foreground group-hover:opacity-100" onClick={() => useView.getState().set({ tool: "quadrant", studioView: "timeline" })}>
+          <Plus className="size-3.5" />
+        </button>
+      </div>
+      {open && (
+        <div className="pb-1.5">
+          {list.length === 0 && <p className="px-4 py-1 text-[11.5px] text-muted-foreground">Use a ferramenta Quadrante (Q) e arraste sobre a timeline.</p>}
+          {list.map((q) => (
+            <div key={q.id} className={cn("mx-1 flex items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] hover:bg-muted", sel === q.id && "bg-primary/10")}>
+              <span className="size-3 shrink-0 rounded-sm border" style={{ background: q.color, opacity: q.hidden ? 0.35 : 1, borderStyle: q.stroke === "dashed" ? "dashed" : "solid", borderColor: q.strokeColor ?? q.color }} />
+              <button className={cn("min-w-0 flex-1 truncate text-left", q.hidden && "text-muted-foreground")} onClick={() => st.selectQuad(q.id)} title={q.description}>{q.title}</button>
+              <span className="text-[9.5px] font-bold text-muted-foreground">{q.mode === "auto" ? "AUTO" : ""}</span>
+              <button aria-label={q.hidden ? `Mostrar ${q.title}` : `Ocultar ${q.title}`} className="text-muted-foreground hover:text-foreground" onClick={() => st.commit(q.hidden ? "mostrar quadrante" : "ocultar quadrante", (d) => ({ ...d, quadrants: (d.quadrants ?? []).map((x) => (x.id === q.id ? { ...x, hidden: !x.hidden } : x)) }))}>
+                {q.hidden ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
+              </button>
+              <button aria-label={q.locked ? `Desbloquear ${q.title}` : `Bloquear ${q.title}`} className="text-muted-foreground hover:text-foreground" onClick={() => st.commit(q.locked ? "desbloquear quadrante" : "bloquear quadrante", (d) => ({ ...d, quadrants: (d.quadrants ?? []).map((x) => (x.id === q.id ? { ...x, locked: !x.locked } : x)) }))}>
+                {q.locked ? <Lock className="size-3" /> : <Unlock className="size-3 opacity-40" />}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

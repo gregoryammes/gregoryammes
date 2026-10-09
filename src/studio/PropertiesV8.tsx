@@ -25,6 +25,7 @@ const TONE: Record<Tag["tone"], string> = {
   scenario: "border-[#B9BEF0] bg-[#EEF0FB] text-[#3730A3]",
   warn: "border-[#E3C25C] bg-[#FFF8DB] text-[#6B4E00]",
   info: "border-[#A9D2EA] bg-[#E8F3FA] text-[#0B5F8C]",
+  proposal: "border-[#C9BCE3] bg-[#F4F0FB] text-[#5B4A86]",
 }
 
 export function TagChips({ tags }: { tags: Tag[] }) {

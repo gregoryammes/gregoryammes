@@ -31,16 +31,20 @@ describe("V11 — timeline por projetos e modalidades", () => {
     expect(vig.members.map((m) => m.item.id).sort()).toEqual(["p2-marco-0531", "p2-vigencia"])
   })
 
-  it("cinco modalidades com poucas linhas; Técnico Piloto, Técnico 1 e Técnico 2 lado a lado", () => {
+  it("cinco modalidades com poucas linhas; Técnico 2024–2025, Técnico 1 e Técnico 2 lado a lado", () => {
     const L = mod(createSeed())
     expect(lanes(L.rows).filter((r) => r.kind === "modality").map((r) => r.modality)).toEqual(["jornada", "robotica", "tecnico", "bolsas", "operacao", "outras"])
     const tec = modality(L.rows, "tecnico")!
     const lane = Object.fromEntries(tec.members.map((m) => [m.item.id, m.lane]))
     expect(Object.keys(lane).sort()).toEqual(["p1-tecnico", "t1", "t2"])
-    expect(lane.t1).not.toBe(lane.t2) // overlap → separate lanes
-    expect(tec.laneCount).toBe(2)
+    // 2024–2025, 2026–2027 and 2028–2029 do not overlap: one continuous line, each course one bar.
+    expect(tec.laneCount).toBe(1)
+    expect(new Set(Object.values(lane)).size).toBe(1)
     const bol = modality(L.rows, "bolsas")!
     expect(bol.members.map((m) => m.item.id).sort()).toEqual(["ing-1", "ing-2", "ing-3", "t1-bolsas", "t2-bolsas"])
+    const jor = modality(L.rows, "jornada")!
+    expect(jor.members.map((m) => m.item.id)).toEqual(["p1-jornada", "p1-jornada-2", "jornada-2025", "jornada-2026", "jornada-5"])
+    expect(modality(L.rows, "robotica")!.members.map((m) => m.item.id)).toEqual(["p1-robotica", "rob-2026", "rob-2027"])
   })
 
   it("componentes do curso só aparecem quando ele é expandido", () => {
@@ -91,12 +95,16 @@ describe("V11 — timeline por projetos e modalidades", () => {
 describe("V11 — resumo financeiro", () => {
   it("soma por registro, saldo só com contratado e pago informados", () => {
     let doc = createSeed()
-    doc = { ...doc, finRecords: doc.finRecords!.map((f) => (f.id === "fin-t1-aquisicao" ? { ...f, contractValue: 5000 } : f)) }
+    // Start from a course without informed values: drop the V18 payment and set a contract value.
+    doc = { ...doc, finRecords: doc.finRecords!.filter((f) => f.id !== "fin-t1-pagamento").map((f) => (f.id === "fin-t1-aquisicao" ? { ...f, contractValue: 5000 } : f)) }
     doc = newFin(doc, "pagamento", doc.items.find((i) => i.id === "t1")!, { parentId: "fin-t1-aquisicao", realized: true, value: 2000, start: "2026-03-01", end: "2026-03-01" }).doc
     const s = summarize([...doc.finRecords!], new Set(["t1", "t2"]))
     expect(s).toMatchObject({ acqs: 2, contracted: 5000, paid: 2000, balance: 3000, missing: 1 })
-    const none = summarize(createSeed().finRecords!, new Set(["t1"]))
+    const none = summarize(createSeed().finRecords!, new Set(["t2"]))
     expect([none.contracted, none.paid, none.balance]).toEqual([null, null, null])
+    // Técnico 1 as informed in V18: R$ 298.012 contracted and paid in advance → balance 0, counted once.
+    const t1 = summarize(createSeed().finRecords!, new Set(["t1", "t1"]))
+    expect([t1.contracted, t1.paid, t1.balance]).toEqual([298012, 298012, 0])
   })
 })
 

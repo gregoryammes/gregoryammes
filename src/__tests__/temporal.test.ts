@@ -107,7 +107,10 @@ describe("V4 layout and journey", () => {
     expect(y1.item?.id).toBe("t1")
     expect(y2.item?.id).toBe("t1")
     expect(y2.afterFrom).toBeCloseTo(181 / 365, 2)
-    expect(j.cells.find((c) => c.cohort === 2025 && c.stage === 2)!.state).toBe("cenario")
+    // Most recent planning (V18): the future turma is 2028–2029; the 2027–2028 version lives in its own scenario.
+    expect(j.cells.find((c) => c.cohort === 2026 && c.stage === 2)!.state).toBe("cenario")
+    const old = buildJourney(applyScenario(createSeed(), "cen-tecnico-2027"), 2022, 2026)
+    expect(old.cells.find((c) => c.cohort === 2025 && c.stage === 2)!.state).toBe("cenario")
   })
 })
 
@@ -132,7 +135,10 @@ describe("V6 — turmas, consolidation, two times", () => {
     expect(offeringLabel(doc, t1)).toBe("Técnico 1 · Turma 2026–2027")
     const proven = { ...doc, turmas: doc.turmas!.map((t) => (t.id === "turma-tec-2026" ? { ...t, studentsCertainty: "comprovado" as const } : t)) }
     expect(offeringLabel(proven, t1)).toBe("Técnico 1 · Turma 2026–2027 · 27 alunos")
-    expect(offeringLabel(doc, doc.items.find((i) => i.id === "t2")!)).toBe("Técnico 2 · Turma prevista 2027–2028")
+    expect(offeringLabel(doc, doc.items.find((i) => i.id === "t2")!)).toBe("Técnico 2 · Turma prevista 2028–2029")
+    // The earlier version stays available as a scenario, with its own turma.
+    const old = applyScenario(doc, "cen-tecnico-2027").find((i) => i.id === "t2")!
+    expect(offeringLabel(doc, old)).toBe("Técnico 2 · Turma prevista 2027–2028")
   })
   it("says 'Turma a identificar' without inventing one", async () => {
     const { offeringLabel } = await import("@/lib/v6")

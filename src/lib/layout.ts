@@ -1,6 +1,6 @@
 import { GROUPS, groupOf, isDetail, type Consolidation, type FinRecord, type GroupId, type ModalityId } from "@/data/types"
 import type { EffItem } from "./analysis"
-import type { ActionInfo } from "./finance"
+import type { ActionInfo, Tag } from "./finance"
 
 export const LABEL_W = 264
 export const GROUP_H = 34
@@ -28,6 +28,8 @@ interface HierFields {
   via?: string
   /** V11 lane rendering: one compact tag, expand button on the bar. */
   compact?: boolean
+  /** V18 carimbo financeiro (from the linked financial records). */
+  stamp?: Tag
 }
 
 /** V11 — a row holding several records side by side, packed in sub-lanes by time. */
@@ -37,6 +39,7 @@ export interface LaneMember {
   info?: ActionInfo
   toggle?: string
   expanded?: boolean
+  stamp?: Tag
 }
 
 export type ItemRow = { type: "item"; group: GroupId; top: number; h: number; item: EffItem; index: number; virtual?: "hyp"; portfolio?: boolean } & HierFields

@@ -2,6 +2,7 @@ import { createSeed } from "./seed"
 import { applyV6 } from "./v6"
 import { applyV8 } from "./v8"
 import { applyV11 } from "./v11"
+import { applyV18 } from "./v18"
 import type { Item, StudioDoc } from "./types"
 import { DEFAULT_LAYER } from "./types"
 
@@ -13,11 +14,12 @@ export function normalizeDoc(d: StudioDoc): StudioDoc {
   const grouped = normalizeGroups(d)
   const v6 = (grouped.settings.modelVersion ?? 0) >= 6 ? grouped : applyV6(grouped)
   const v8 = (v6.settings.modelVersion ?? 0) >= 8 ? v6 : applyV8(v6)
-  return (v8.settings.modelVersion ?? 0) >= 11 ? v8 : applyV11(v8)
+  const v11 = (v8.settings.modelVersion ?? 0) >= 11 ? v8 : applyV11(v8)
+  return (v11.settings.modelVersion ?? 0) >= 18 ? v11 : applyV18(v11)
 }
 
 /** True when loading this document will change it (callers back it up first). */
-export const needsMigration = (d: StudioDoc) => d.settings.layout !== "groups-v2" || (d.settings.modelVersion ?? 0) < 11
+export const needsMigration = (d: StudioDoc) => d.settings.layout !== "groups-v2" || (d.settings.modelVersion ?? 0) < 18
 
 function normalizeGroups(d: StudioDoc): StudioDoc {
   if (d.settings.layout === "groups-v2") return d

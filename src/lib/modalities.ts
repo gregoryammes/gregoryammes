@@ -3,6 +3,7 @@ import { resolveActions, type ResolveOptions, type ResolvedAction } from "./hier
 import { COMP_H, NOTE_H, ROW_H, type CompKind, type ItemRow, type LaneMember, type Row, type RowLayout } from "./layout"
 import { MODALITIES, modalityOf, type FinRecord, type ModalityId } from "@/data/types"
 import type { HierStats } from "./hierarchy"
+import { financeStamp, stampTag } from "./finance"
 
 /* ──────────────────────────────────────────────────────────────────────────────
  * V11 — the main timeline: a project region on top (three bands, the P2 plan and
@@ -11,7 +12,7 @@ import type { HierStats } from "./hierarchy"
  * course appear only when that course is expanded.
  * ────────────────────────────────────────────────────────────────────────────── */
 
-export const LANE_H = 36
+export const LANE_H = 42
 const PAD = 6
 export const HEAD_H = 26
 
@@ -47,6 +48,7 @@ export function packPreferred(list: { start: number; end: number; pref?: number 
 export function computeModalities(o: ModOptions): RowLayout & { stats: HierStats } {
   const vis = (pid: string | null | undefined) => !pid || !o.hiddenProjects.includes(pid)
   const { actions, stats } = resolveActions(o)
+  const short = (id: string | null | undefined) => o.doc.projects.find((p) => p.id === id)?.short ?? null
   const rows: Row[] = []
   const itemRows: ItemRow[] = []
   const rowOfMap = new Map<string, ItemRow>()
@@ -57,11 +59,11 @@ export function computeModalities(o: ModOptions): RowLayout & { stats: HierStats
     y += r.h
   }
   const laneRow = (kind: "project" | "plan" | "vig" | "modality", label: string, members: LaneMember[], laneCount: number, extra: Partial<Extract<Row, { type: "lane" }>> = {}) => {
-    const h = extra.collapsed ? 34 : Math.max(1, laneCount) * LANE_H + PAD * 2
+    const h = extra.collapsed ? 42 : Math.max(1, laneCount) * LANE_H + PAD * 2
     const r: Extract<Row, { type: "lane" }> = { type: "lane", group: kind === "modality" ? "g2" : "g1", top: y, h, kind, label, members, laneCount, count: members.length, index: zebra++, ...extra }
     if (!extra.collapsed)
       for (const m of members) {
-        const ir: ItemRow = { type: "item", group: r.group, top: y + PAD + m.lane * LANE_H, h: LANE_H, item: m.item, index: r.index, info: m.info, toggle: m.toggle, expanded: m.expanded, compact: true }
+        const ir: ItemRow = { type: "item", group: r.group, top: y + PAD + m.lane * LANE_H, h: LANE_H, item: m.item, index: r.index, info: m.info, toggle: m.toggle, expanded: m.expanded, compact: true, stamp: m.stamp }
         itemRows.push(ir)
         if (!rowOfMap.has(m.item.id)) rowOfMap.set(m.item.id, ir)
       }
@@ -101,7 +103,7 @@ export function computeModalities(o: ModOptions): RowLayout & { stats: HierStats
   y += 6
 
   // ── Region 2: modalities ─────────────────────────────────────────────────
-  push({ type: "heading", group: "g2", top: y, h: HEAD_H, text: "MODALIDADES", index: zebra })
+  push({ type: "heading", group: "g2", top: y, h: HEAD_H, text: "LINHAS DE FORMAÇÃO", index: zebra })
   const byMod = new Map<ModalityId, ResolvedAction[]>()
   for (const a of actions) {
     const m = modalityOf(a.item)
@@ -116,7 +118,7 @@ export function computeModalities(o: ModOptions): RowLayout & { stats: HierStats
     const singles = list.filter((a) => !a.members).sort((a, b) => a.item.range.start - b.item.range.start)
     const placed: Placed[] = singles.map((a) => ({ item: a.item, action: a, first: true }))
     const pack = packPreferred(singles.map((a) => ({ start: a.item.range.start, end: a.item.range.end, pref: a.item.modLane })))
-    const members: LaneMember[] = placed.map((p, k) => ({ item: p.item, lane: pack.lanes[k], info: p.action?.info, toggle: p.action?.key, expanded: o.expanded.includes(p.action!.key) }))
+    const members: LaneMember[] = placed.map((p, k) => ({ item: p.item, lane: pack.lanes[k], info: p.action?.info, toggle: p.action?.key, expanded: o.expanded.includes(p.action!.key), stamp: p.action ? stampTag(financeStamp(p.action.item, p.action.info.acq, short)) : undefined }))
     let laneCount = singles.length ? pack.count : 0
     // Bolsas linked to a course are components of it, but they also belong to "Bolsas e Incentivos".
     if (m.id === "bolsas") {
@@ -130,7 +132,7 @@ export function computeModalities(o: ModOptions): RowLayout & { stats: HierStats
     }
     for (const a of list.filter((x) => x.members)) {
       const sub = packPreferred(a.members!.map((i) => ({ start: i.range.start, end: i.range.end })))
-      a.members!.forEach((it, k) => members.push({ item: it, lane: laneCount + sub.lanes[k], info: k === 0 ? a.info : undefined, toggle: k === 0 ? a.key : undefined, expanded: o.expanded.includes(a.key) }))
+      a.members!.forEach((it, k) => members.push({ item: it, lane: laneCount + sub.lanes[k], info: k === 0 ? a.info : undefined, toggle: k === 0 ? a.key : undefined, expanded: o.expanded.includes(a.key), stamp: k === 0 ? stampTag(financeStamp(a.item, a.info.acq, short)) : undefined }))
       laneCount += sub.count
     }
     laneRow("modality", m.label, members, laneCount, {

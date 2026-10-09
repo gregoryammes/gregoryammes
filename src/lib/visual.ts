@@ -2,7 +2,7 @@ import type { Certainty, ItemKind } from "@/data/types"
 
 /** Executive Light palette. Identity (project) is colour; status is form. */
 export const C = {
-  text: "#18324A",
+  text: "#162A40",
   text2: "#64748B",
   text3: "#8796A8",
   grid: "#DFE6EE",
@@ -18,15 +18,15 @@ export const C = {
   orangeSoft: "#FDEBD8",
   red: "#C83C3C",
   redSoft: "#FDF2F2",
-  plan: "#AEBAC8",
+  plan: "#B4C1CF",
   slate: "#7C8DA6",
   amber: "#B7791F",
   selection: "#087CB8",
   /** Documental end of the vigência: a discreet, strong marker. */
   vigLine: "#C2410C",
   /** Continuity after the vigência — temporal attention, not a financial verdict. */
-  after: "#EE7F12",
-  afterSoft: "#FFF5EA",
+  after: "#F28C28",
+  afterSoft: "#FEF4EA",
   afterText: "#9A4A08",
   /** V8: hypothetical scenario (simulation) — purple, always labelled. */
   scenario: "#4338CA",
