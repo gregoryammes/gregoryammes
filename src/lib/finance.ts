@@ -1,0 +1,182 @@
+import type { EffItem } from "./analysis"
+import { partAfter, rangeOf, toDay, type DayRange } from "./dates"
+import type { FinKind, FinRecord, Item, StudioDoc } from "@/data/types"
+
+/* ──────────────────────────────────────────────────────────────────────────────
+ * V8 — financial components of an action. Pure functions: what the records say,
+ * never more. "Pago" is shown only when an acquisition record says so.
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+/** Records visible in a scenario (scenario-only forecasts appear only there). */
+export const finRecordsIn = (doc: StudioDoc, scenarioId?: string) => (doc.finRecords ?? []).filter((f) => !f.scenarioId || f.scenarioId === scenarioId)
+
+export const finOf = (fins: FinRecord[], actionId: string, kind?: FinKind) => fins.filter((f) => f.actionId === actionId && (!kind || f.kind === kind))
+
+export const acqOf = (fins: FinRecord[], actionId: string) => fins.find((f) => f.actionId === actionId && f.kind === "aquisicao")
+
+export function finRange(f: Pick<FinRecord, "start" | "end">): DayRange | null {
+  if (!f.start) return null
+  try {
+    const r = rangeOf(f.start, f.end ?? f.start)
+    return r.end > r.start ? r : { start: r.start, end: r.start + 1 }
+  } catch {
+    return null
+  }
+}
+
+export type TagTone = "paid" | "neutral" | "pending" | "scenario" | "warn" | "info" | "plan"
+export interface Tag {
+  label: string
+  tone: TagTone
+  title?: string
+}
+
+const stepDone = (a: FinRecord, id: string) => !!a.steps?.find((s) => s.id === id)?.done
+
+/** Compact acquisition tag for the action row. */
+export function acqTag(a: FinRecord | undefined): Tag {
+  if (!a) return { label: "Pagamento a validar", tone: "neutral", title: "Nenhum registro de aquisição ou pagamento cadastrado para esta ação." }
+  switch (a.acqStatus ?? "planejado") {
+    case "integralmente_pago":
+      return { label: "Pago", tone: "paid", title: "Aquisição registrada como integralmente paga." }
+    case "parcialmente_pago":
+      return { label: "Parcialmente pago", tone: "pending" }
+    case "contratado":
+      return { label: "Contratado", tone: "info" }
+    case "em_negociacao":
+      return stepDone(a, "negociacao")
+        ? { label: "Compra a formalizar", tone: "pending", title: "Negociação concluída; contrato ainda não formalizado." }
+        : { label: "Em negociação", tone: "pending" }
+    default:
+      return { label: "Compra prevista", tone: "plan" }
+  }
+}
+
+/** Sum of payments linked to an acquisition — each payment record counted once. */
+export function paidOf(fins: FinRecord[], a: FinRecord) {
+  const pays = fins.filter((f) => f.kind === "pagamento" && f.realized && (f.parentId === a.id || (!f.parentId && f.actionId === a.actionId)))
+  const valued = pays.filter((p) => p.value != null)
+  return { pays, total: valued.length ? valued.reduce((s, p) => s + (p.value ?? 0), 0) : null, lastDate: pays.map((p) => p.end ?? p.start).filter(Boolean).sort().pop() ?? null }
+}
+
+/** Consistency checks between the declared state and the registered documents. */
+export function acqWarnings(fins: FinRecord[], a: FinRecord): string[] {
+  const out: string[] = []
+  const { pays, total } = paidOf(fins, a)
+  const st = a.acqStatus ?? "planejado"
+  if ((st === "integralmente_pago" || st === "parcialmente_pago") && pays.length === 0) out.push("Situação “pago” sem registro de pagamento cadastrado (data e valor não informados).")
+  if (st === "integralmente_pago" && a.contractValue != null && total != null && total < a.contractValue) out.push("Pagamentos registrados menores que o valor contratado.")
+  if (a.proof === "pendente" && (st === "contratado" || st === "parcialmente_pago" || st === "integralmente_pago")) out.push("Comprovação documental pendente.")
+  if (a.proof === "comprovado" && !a.evidence && !a.steps?.some((s) => s.id === "comprovacao" && s.done && s.evidence)) out.push("Marcado como comprovado sem documento informado.")
+  if ((st === "contratado" || st === "parcialmente_pago" || st === "integralmente_pago") && !a.contractDate && !stepDone(a, "contrato")) out.push("Contrato não registrado (data e documento).")
+  return out
+}
+
+export interface ActionInfo {
+  action: EffItem
+  acq?: FinRecord
+  fins: FinRecord[]
+  bolsas: EffItem[]
+  tags: Tag[]
+  /** Open commitments: forecasts, unpaid installments, pending proof, grants still running. */
+  open: string[]
+  ended: boolean
+  paid: boolean
+}
+
+/** Bolsas, milestones and turmas subordinated to an action. */
+export const childItemsOf = (items: EffItem[], action: Item) => items.filter((i) => i.id !== action.id && i.parentId === action.id)
+
+export function actionInfo(action: EffItem, items: EffItem[], fins: FinRecord[], ref: number): ActionInfo {
+  const mine = finOf(fins, action.id)
+  const acq = mine.find((f) => f.kind === "aquisicao")
+  const bolsas = childItemsOf(items, action).filter((i) => i.kind === "bolsa")
+  const tags: Tag[] = []
+  const aTag = acqTag(acq)
+  tags.push(aTag)
+  // A paid or contracted acquisition without proof says so on the same tag.
+  if (acq && acq.proof === "pendente" && ["contratado", "parcialmente_pago", "integralmente_pago"].includes(acq.acqStatus ?? "")) tags.push({ label: "Documentação pendente", tone: "warn", title: "Comprovação documental da aquisição ainda não registrada." })
+  if (bolsas.length) {
+    const future = bolsas.every((b) => b.certainty === "hipotese" || b.certainty === "planejado")
+    tags.push({ label: future ? "Bolsas previstas" : "Bolsas vinculadas", tone: "info" })
+  }
+  if (mine.some((f) => f.linkStatus === "a_validar")) tags.push({ label: "Vínculo a validar", tone: "warn" })
+  if (action.certainty === "hipotese" || action.changed) tags.push({ label: "Cenário", tone: "scenario" })
+  const open: string[] = []
+  for (const f of mine) {
+    if (f.kind === "aquisicao") {
+      if (f.acqStatus !== "integralmente_pago") open.push("aquisição não quitada")
+      if (f.proof === "pendente") open.push("comprovação pendente")
+    } else if (f.kind === "parcela") {
+      if (f.parcelStatus !== "paga") open.push("parcela de bolsa em aberto")
+    } else if (!f.realized) open.push(`${f.kind === "nf" ? "NF" : f.kind} prevista`)
+    else if (f.proof === "pendente") open.push("comprovação pendente")
+  }
+  for (const b of bolsas) if (b.range.end > ref) open.push("bolsas em período futuro")
+  const ended = action.range.end <= ref && action.certainty !== "hipotese" && action.certainty !== "planejado" && !action.dateUndetermined
+  return { action, acq, fins: mine, bolsas, tags, open: [...new Set(open)], ended, paid: acq?.acqStatus === "integralmente_pago" }
+}
+
+/** "Ocultar concluídas e pagas": only when the action ended, is paid and nothing is still open. */
+export const isSettled = (info: ActionInfo) => info.ended && info.paid && info.open.length === 0
+
+export type FinFilter = "all" | "paid" | "pending" | "future" | "validate"
+
+export const FIN_FILTERS: { id: FinFilter; label: string; hint: string }[] = [
+  { id: "all", label: "Todas as ações", hint: "Sem filtro financeiro" },
+  { id: "paid", label: "Aquisição paga", hint: "Ações cuja aquisição está registrada como integralmente paga" },
+  { id: "pending", label: "A adquirir / pendentes", hint: "Aquisições planejadas, em negociação, contratadas ou parcialmente pagas" },
+  { id: "future", label: "Compromissos futuros", hint: "Pagamentos, NFs, parcelas e bolsas previstos após a data de referência" },
+  { id: "validate", label: "Informações a validar", hint: "Sem registro de aquisição, comprovação pendente ou vínculo a validar" },
+]
+
+export function matchesFinFilter(info: ActionInfo, f: FinFilter, ref: number): boolean {
+  if (f === "all") return true
+  const st = info.acq?.acqStatus
+  if (f === "paid") return st === "integralmente_pago"
+  if (f === "pending") return !!info.acq && st !== "integralmente_pago"
+  if (f === "future")
+    return (
+      info.fins.some((x) => x.kind !== "aquisicao" && !x.realized && (finRange(x)?.end ?? Infinity) > ref) ||
+      info.fins.some((x) => x.kind === "parcela" && x.parcelStatus !== "paga") ||
+      info.bolsas.some((b) => b.range.end > ref)
+    )
+  return !info.acq || info.acq.proof === "pendente" || info.fins.some((x) => x.linkStatus === "a_validar") || info.action.certainty === "a_validar"
+}
+
+/**
+ * Totals by record id: a payment shown under its action, its project and a filter is still one
+ * payment. Optionally restricted to the projects that fund it.
+ */
+export function finTotals(fins: FinRecord[], opts: { projects?: string[]; actionProject?: (actionId: string | null) => string | null } = {}) {
+  const seen = new Set<string>()
+  let paid: number | null = null
+  let planned: number | null = null
+  let count = 0
+  for (const f of fins) {
+    if (seen.has(f.id)) continue
+    seen.add(f.id)
+    const project = f.fundingProjectId ?? opts.actionProject?.(f.actionId) ?? null
+    if (opts.projects && (!project || !opts.projects.includes(project))) continue
+    if (f.kind !== "pagamento" || f.value == null) continue
+    count++
+    if (f.realized) paid = (paid ?? 0) + f.value
+    else planned = (planned ?? 0) + f.value
+  }
+  return { paid, planned, count }
+}
+
+/** Part of a dated financial event after the vigência (calendar fact only). */
+export const finAfter = (f: FinRecord, vig: DayRange | null) => {
+  const r = finRange(f)
+  return r && vig ? partAfter(r, vig) : null
+}
+
+export const dayOrNull = (iso?: string | null) => {
+  if (!iso) return null
+  try {
+    return toDay(iso)
+  } catch {
+    return null
+  }
+}

@@ -103,7 +103,7 @@ const expected = await page.evaluate(() => {
 })
 await page.getByRole("button", { name: "Apresentar", exact: true }).click()
 await page.waitForTimeout(900)
-await page.keyboard.press("3")
+await page.keyboard.press("4")
 await page.waitForTimeout(1200)
 const cap = await page.locator("svg text", { hasText: "hipótese de cenário" }).first().textContent()
 ok("T6 Diretoria = cenário ativo", !!cap && cap.includes(expected) && (await page.locator("text=SIMULAÇÃO").count()) > 0, `${expected}`)
@@ -258,7 +258,7 @@ await page.screenshot({ path: `${OUT}/v6-08-cenario.png` })
 // V6-10 Diretoria = cenário do editor
 await page.getByRole("button", { name: "Apresentar", exact: true }).click()
 await page.waitForTimeout(900)
-await page.keyboard.press("3")
+await page.keyboard.press("4")
 await page.waitForTimeout(1100)
 const boardHyp = await page.locator("svg text", { hasText: "hipótese de cenário" }).first().textContent()
 ok("V6-10 Diretoria segue o cenário ativo", !!boardHyp?.includes("31/12/2027") && (await page.locator("text=SIMULAÇÃO").count()) > 0, boardHyp ?? "")
@@ -284,6 +284,170 @@ await page.waitForTimeout(600)
 const after12 = await page.evaluate(() => ({ turmas: window.__studio.getState().doc.turmas.length, ing: window.__studio.getState().doc.items.filter((i) => i.consolidation === "ingles").length }))
 const mode12 = await page.locator('select[aria-label="Exibição da timeline"]').inputValue()
 ok("V6-12 persistência de dados e da exibição", after12.turmas === 2 && after12.ing === 3 && mode12 === "projects", JSON.stringify({ ...after12, mode12 }))
+
+// ════════════════════════ V8 — Projeto → Curso → Componentes ════════════════════════
+await page.evaluate(() => localStorage.clear())
+await page.reload({ waitUntil: "networkidle" })
+await page.waitForTimeout(700)
+const SV = (fn) => page.evaluate(fn)
+const svgText = async (re) => page.locator("#timeline-svg text", { hasText: re }).count()
+const fins8 = () => SV(() => JSON.stringify(window.__studio.getState().doc.finRecords))
+const item8 = (id) => page.evaluate((x) => JSON.stringify(window.__studio.getState().doc.items.find((i) => i.id === x)), id)
+const mode8 = await page.locator('select[aria-label="Exibição da timeline"]').inputValue()
+
+// V8-1 Técnico 1 recolhido: uma linha principal com curso, turma, período e aquisição
+let ids8 = await svgIds()
+const t1Tag = await page.locator("#timeline-svg [data-tags] text", { hasText: /^Pago$/ }).count()
+ok("V8-1 Técnico 1 recolhido em uma linha (curso · turma · aquisição)", mode8 === "courses" && ids8.includes("t1") && !ids8.includes("t1-bolsas") && t1Tag === 1 && (await svgText("Técnico 1 · Turma 2026–2027")) >= 1, `exibição ${mode8}`)
+await page.screenshot({ path: `${OUT}/v8-01-recolhido.png` })
+
+// V8-2 expandir mostra aquisição, bolsas, NF e materiais
+await page.locator('#timeline-svg [data-hit=h-toggle][data-id=t1]').click()
+await page.waitForTimeout(250)
+ids8 = await svgIds()
+ok("V8-2 Técnico 1 expandido: aquisição, bolsas, NF, materiais",
+  ids8.includes("t1-bolsas") && (await svgText("Aquisição e pagamento")) >= 1 && (await svgText("Notas fiscais e comprovação")) >= 1 && (await svgText("Materiais e recursos")) >= 1 && (await svgText(/Integralmente pago \(registro\)/)) === 1)
+await page.screenshot({ path: `${OUT}/v8-02-expandido.png` })
+
+// V8-3 Técnico 2: previsto, negociação concluída, formalização pendente
+await page.locator('#timeline-svg [data-hit=h-toggle][data-id=t2]').click()
+await page.waitForTimeout(250)
+ok("V8-3 Técnico 2: negociação concluída, compra a formalizar, NF e pagamento previstos",
+  (await svgText(/^Compra a formalizar$/)) === 1 && (await svgText("negociação concluída")) >= 1 && (await svgText("NF única (prevista) · data a definir")) === 1 && (await svgText("Pagamento único (previsto) · data a definir")) === 1)
+await page.screenshot({ path: `${OUT}/v8-03-tecnico2.png` })
+
+// V8-4 alterar a situação da aquisição não altera as bolsas nem o curso
+const bolsaBefore = await item8("t1-bolsas")
+const t1Before = await item8("t1")
+await page.locator('#timeline-svg [data-hit=fin][data-id=fin-t1-aquisicao]').first().click()
+await page.waitForTimeout(200)
+await panel.getByLabel("Situação da aquisição").selectOption("parcialmente_pago")
+await page.waitForTimeout(200)
+const acq4 = await SV(() => window.__studio.getState().doc.finRecords.find((f) => f.id === "fin-t1-aquisicao").acqStatus)
+ok("V8-4 aquisição alterada sem tocar bolsas e curso", acq4 === "parcialmente_pago" && (await item8("t1-bolsas")) === bolsaBefore && (await item8("t1")) === t1Before && (await svgText(/^Parcialmente pago$/)) === 1, acq4)
+await page.keyboard.press("Control+z")
+await page.waitForTimeout(150)
+ok("V8-4 desfazer restaura a aquisição", (await SV(() => window.__studio.getState().doc.finRecords.find((f) => f.id === "fin-t1-aquisicao").acqStatus)) === "integralmente_pago")
+await page.evaluate(() => window.__studio.getState().select([]))
+
+// V8-5 desmarcar P1: ações exclusivas ocultas, nada excluído
+const count5 = await storeCount()
+const fins5 = await fins8()
+await page.getByRole("button", { name: /P1$/ }).click()
+await page.waitForTimeout(250)
+ids8 = await svgIds()
+ok("V8-5 P1 oculto: ações exclusivas somem, registros intactos", !ids8.some((x) => x.startsWith("p1-")) && ids8.includes("t1") && ids8.includes("p2-vigencia") && (await storeCount()) === count5 && (await fins8()) === fins5, `${ids8.length} visíveis`)
+await page.screenshot({ path: `${OUT}/v8-05-sem-p1.png` })
+
+// V8-6 reativar P1: cursos e situação de pagamento (sem inventar status)
+await page.getByRole("button", { name: /P1$/ }).click()
+await page.waitForTimeout(250)
+ids8 = await svgIds()
+ok("V8-6 P1 reexibido com cursos históricos e 'Pagamento a validar'", ["p1-ciclo", "p1-tecnico", "p1-jornada", "p1-robotica"].every((x) => ids8.includes(x)) && (await svgText(/^Pagamento a validar$/)) >= 4 && (await svgText("Curso Técnico Piloto")) >= 1)
+
+// V8-7 vínculo múltiplo: ação do P1 com participação do P2 continua visível sem P1
+await page.evaluate(() => window.__studio.getState().select(["p1-robotica"]))
+await page.waitForTimeout(250)
+await panel.getByRole("button", { name: "Adicionar projeto participante" }).click()
+await page.waitForTimeout(150)
+const fund7 = await SV(() => window.__studio.getState().doc.items.find((i) => i.id === "p1-robotica").funding)
+await page.evaluate(() => window.__studio.getState().select([]))
+await page.getByRole("button", { name: /P1$/ }).click()
+await page.waitForTimeout(250)
+ids8 = await svgIds()
+ok("V8-7 ação compartilhada visível com P1 oculto", fund7?.[0]?.projectId === "p2" && ids8.includes("p1-robotica") && !ids8.includes("p1-jornada") && (await svgText(/participação do P2/)) === 1, JSON.stringify(fund7))
+await page.screenshot({ path: `${OUT}/v8-07-vinculo.png` })
+await page.getByRole("button", { name: /P1$/ }).click()
+await page.keyboard.press("Control+z")
+await page.waitForTimeout(150)
+
+// V8-8 escala: barras que começam antes ou terminam depois da janela
+await page.getByRole("button", { name: /^2025–2028/ }).click()
+await page.getByRole("button", { name: "Histórico · 2023–2025" }).click()
+await page.waitForTimeout(300)
+const right8 = await page.locator("#timeline-svg [data-clip=right]").count()
+await page.evaluate(() => window.__view.getState().setRange(2027, 2028))
+await page.waitForTimeout(300)
+const left8 = await page.locator("#timeline-svg [data-clip=left]").count()
+const t1Visible = await page.locator('#timeline-svg [data-hit=item][data-id=t1]').count()
+ok("V8-8 continuidade fora da janela indicada (◂ ▸), sem truncar em silêncio", right8 >= 1 && left8 >= 1 && t1Visible === 1, `direita ${right8} · esquerda ${left8}`)
+await page.screenshot({ path: `${OUT}/v8-08-escala.png` })
+await page.evaluate(() => window.__view.getState().setRange(2025, 2028))
+
+// V8-9 Bolsas de Inglês: uma linha, ciclos expansíveis, registros preservados
+await page.locator('#timeline-svg [data-hit=h-toggle][data-id=t2]').click()
+await page.waitForTimeout(150)
+await page.locator('#timeline-svg [data-hit=h-toggle][data-id="cons:ingles"]').click()
+await page.waitForTimeout(250)
+const ing9 = await SV(() => window.__studio.getState().doc.items.filter((i) => i.consolidation === "ingles").map((i) => i.id + ":" + i.partner))
+ok("V8-9 Bolsas de Inglês consolidadas e expansíveis", (await page.locator("#timeline-svg [data-hit=cons-label]").count()) === 1 && ing9.length === 3 && (await svgText("KNN")) === 0 && (await svgText("Wizard")) === 0, ing9.join(","))
+
+// V8-10 arrastar/redimensionar o curso não altera pagamentos e documentos
+const fins10 = await fins8()
+await drag('#timeline-svg rect[data-hit=item][data-id=t1]', 100)
+const t1m = JSON.parse(await item8("t1"))
+ok("V8-10 curso movido; aquisição, NF e pagamentos intactos", t1m.start !== "2026-02-18" && (await fins8()) === fins10, `${t1m.start} → ${t1m.end}`)
+await page.keyboard.press("Control+z")
+await page.waitForTimeout(150)
+await page.evaluate(() => window.__studio.getState().select([]))
+
+// V8-13 uma despesa em várias visões conta uma vez
+await page.evaluate(() => {
+  const s = window.__studio.getState()
+  s.commit("pagamento de teste", (d) => ({ ...d, finRecords: [...d.finRecords, { id: "fin-e2e-pay", kind: "pagamento", name: "Pagamento e2e", actionId: "t1", parentId: "fin-t1-aquisicao", start: "2026-03-10", end: "2026-03-10", realized: true, value: 1000, fundingProjectId: "p2", proof: "pendente", linkStatus: "confirmado", sourceIds: [] }] }))
+})
+await page.locator('select[aria-label="Situação financeira"]').selectOption("paid")
+await page.waitForTimeout(250)
+await page.locator('#timeline-svg [data-hit=fin][data-id=fin-t1-aquisicao]').first().click()
+await page.waitForTimeout(200)
+const panel13 = await panel.innerText()
+const sum13 = await svgText("pago R$ 1.000,00")
+const n13 = await SV(() => window.__studio.getState().doc.finRecords.filter((f) => f.id === "fin-e2e-pay").length)
+ok("V8-13 despesa única: R$ 1.000 (não 2.000) na linha e no painel, com filtro ativo", n13 === 1 && sum13 === 1 && /R\$\s1\.000,00/.test(panel13) && !/R\$\s2\.000,00/.test(panel13), `linha ${sum13} · registros ${n13}`)
+await page.locator('select[aria-label="Situação financeira"]').selectOption("all")
+await page.keyboard.press("Escape")
+
+// V8-11 Diretoria: curso recolhido e componentes revelados por etapas
+const past11 = await SV(() => window.__studio.getState().past.length)
+await page.getByRole("button", { name: "Apresentar", exact: true }).click()
+await page.waitForTimeout(900)
+await page.keyboard.press("2")
+await page.waitForTimeout(1300)
+await page.getByRole("button", { name: "Curso Técnico 1" }).click()
+await page.waitForTimeout(400)
+const collapsed11 = await page.locator("text=curso recolhido").count()
+await page.getByRole("button", { name: /Revelar próximo/ }).click()
+await page.getByRole("button", { name: /Revelar próximo/ }).click()
+await page.waitForTimeout(500)
+ok("V8-11 Diretoria: síntese do curso recolhido + revelação progressiva sem alterar dados",
+  collapsed11 === 1 && (await page.locator("text=2 de 5 componentes revelados").count()) === 1 && (await page.locator('svg[aria-label="Aquisição e pagamento"]').count()) === 1 && (await page.locator('svg[aria-label="Bolsas dos alunos"]').count()) === 1 && (await page.locator("text=Aquisição indicada como paga, conforme registros").count()) === 1 && (await SV(() => window.__studio.getState().past.length)) === past11)
+await page.screenshot({ path: `${OUT}/v8-11-diretoria.png` })
+await page.keyboard.press("Escape")
+await page.getByRole("button", { name: /Estúdio/ }).click().catch(() => {})
+await page.waitForTimeout(300)
+
+// V8-12 salvar, reabrir: vínculos e estados
+await page.evaluate(() => window.__studio.getState().select(["t1"]))
+await page.waitForTimeout(200)
+await panel.getByRole("button", { name: "Cadastrar nota fiscal" }).click()
+await page.waitForTimeout(200)
+await panel.getByLabel("Data do registro").fill("2026-04-15")
+await panel.getByLabel("Data do registro").blur()
+await panel.getByLabel("Número do documento").fill("123")
+await panel.getByLabel("Número do documento").blur()
+await page.waitForTimeout(150)
+await page.keyboard.press("Control+s")
+await page.waitForTimeout(300)
+await page.reload({ waitUntil: "networkidle" })
+await page.waitForTimeout(700)
+const p12 = await SV(() => {
+  const d = window.__studio.getState().doc
+  const nf = d.finRecords.find((f) => f.kind === "nf" && f.actionId === "t1")
+  return { nf: nf && `${nf.start}|${nf.docNumber}|${nf.realized}`, acq: d.finRecords.find((f) => f.id === "fin-t1-aquisicao").acqStatus, t2: d.finRecords.find((f) => f.id === "fin-t2-aquisicao").steps.filter((s) => s.done).length, pay: d.finRecords.some((f) => f.id === "fin-e2e-pay"), v: d.settings.modelVersion }
+})
+const exp12 = await SV(() => window.__view.getState().expanded)
+ok("V8-12 persistência de vínculos, estados e expansão", p12.nf === "2026-04-15|123|false" && p12.acq === "integralmente_pago" && p12.t2 === 2 && p12.pay && p12.v === 8 && exp12.includes("t1"), JSON.stringify({ ...p12, exp12 }))
+await page.screenshot({ path: `${OUT}/v8-12-persistencia.png` })
 
 ok("sem erros de página", errors.length === 0, errors.slice(0, 3).join(" | "))
 await browser.close()

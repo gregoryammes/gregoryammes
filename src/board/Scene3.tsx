@@ -14,7 +14,7 @@ export function Scene3() {
   const after = course && vig ? partAfter(course.range, vig) : null
   return (
     <div className="absolute inset-0">
-      <SceneTitle scene={2} eyebrow="Dois tempos do projeto" title="A vigência termina. A formação continua." size={60} />
+      <SceneTitle scene={2} n={4} eyebrow="Dois tempos do projeto" title="A vigência termina. A formação continua." size={60} />
       <Movable k="s2:headline" x={120} y={206} w={1160}>
         <p className="text-[23px] leading-snug text-[#18324A]">
           {after && course ? (

@@ -17,7 +17,7 @@ export interface EffItem extends Item {
 
 const TEMPORAL_FIELDS = new Set(["start", "end"])
 /** Composition-only fields: moving a row or recolouring a bar is not a change to the record. */
-const VISUAL_FIELDS = new Set(["lane", "layer", "color", "locked", "hidden", "detail", "turmaIds", "consolidation", "partner", "shortName", "courseId"])
+const VISUAL_FIELDS = new Set(["lane", "layer", "color", "locked", "hidden", "detail", "turmaIds", "consolidation", "partner", "shortName", "courseId", "funding"])
 
 export function getScenario(doc: StudioDoc, id: string): Scenario {
   return doc.scenarios.find((s) => s.id === id) ?? doc.scenarios[0]

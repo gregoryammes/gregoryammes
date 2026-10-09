@@ -4,12 +4,14 @@ import {
   type DayRange,
 } from "@/lib/dates"
 import type { EffItem } from "@/lib/analysis"
-import { computeRows, BAR_H, LABEL_W, SUB_H, type Row } from "@/lib/layout"
+import { computeRows, BAR_H, COMP_LABEL, LABEL_W, SUB_H, type Row } from "@/lib/layout"
+import { computeHierarchy } from "@/lib/hierarchy"
+import { acqWarnings, finRange, finRecordsIn, paidOf, type Tag } from "@/lib/finance"
 import { C, barStyleFor, itemColor, statusOf, textWidth, truncate, wrapText, type StatusKey } from "@/lib/visual"
 import { reorderRows, useStudio, uid } from "@/store/store"
 import { useCompareItems, useEffectiveItems, useProjectColor } from "@/store/hooks"
 import { useView } from "@/store/view"
-import { FIN_LABEL, GROUPS, KIND_LABEL, type Annotation, type GroupId } from "@/data/types"
+import { ACQ_STATUS_LABEL, FIN_KIND_LABEL, FIN_LABEL, GROUPS, KIND_LABEL, PARCEL_LABEL, PROOF_LABEL, type Annotation, type FinRecord, type GroupId } from "@/data/types"
 import { docVigRange, offeringLabel, relatedToTurmas, shortNameOf, TEMPORAL_LABEL, temporalSituation } from "@/lib/v6"
 import { confirmAction } from "@/components/Confirm"
 
@@ -57,6 +59,8 @@ export function TimelineCanvas() {
   const doc = useStudio((s) => s.doc)
   const selection = useStudio((s) => s.selection)
   const selectedAnnotation = useStudio((s) => s.selectedAnnotation)
+  const selectedFin = useStudio((s) => s.selectedFin)
+  const scenarioId = useStudio((s) => s.scenarioId)
   const view = useView()
   const colorOf = useProjectColor()
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -71,37 +75,55 @@ export function TimelineCanvas() {
 
   const { settings } = doc
   const { displayMode, hiddenProjects, turmaFilter, turmaFilterMode } = view
+  const hier = displayMode === "courses" || displayMode === "details"
+  const refDay = toDay(settings.referenceDate)
+  const fins = useMemo(() => finRecordsIn(doc, scenarioId), [doc, scenarioId])
   // Visibility filters only decide what is drawn: records, links and scenarios are untouched.
   const visible = useMemo(
     () =>
       items.filter((i) => {
         if (i.hidden) return false
-        if (i.projectId && hiddenProjects.includes(i.projectId)) return false
+        // In the hierarchy, project visibility is resolved per action (shared actions stay visible).
+        if (!hier && i.projectId && hiddenProjects.includes(i.projectId)) return false
         if (displayMode === "filtered" && i.kind === "projeto") return false
         const related = relatedToTurmas(doc, i, turmaFilter) || i.kind === "vigencia"
         if (turmaFilter.length && (displayMode === "filtered" || turmaFilterMode === "hide") && !related && i.kind !== "projeto") return false
         return true
       }),
-    [items, hiddenProjects, displayMode, turmaFilter, turmaFilterMode, doc],
+    [items, hiddenProjects, displayMode, turmaFilter, turmaFilterMode, doc, hier],
   )
   const layout = useMemo(
     () =>
-      computeRows(visible, {
-        hidden: settings.groupsHidden ?? [],
-        collapsed: settings.groupsCollapsed ?? [],
-        detailed: settings.groupsDetailed ?? [],
-        detailAll: view.detailAll,
-        portfolio: displayMode === "projects",
-        consolidations: doc.consolidations,
-      }),
-    [visible, settings.groupsHidden, settings.groupsCollapsed, settings.groupsDetailed, view.detailAll, displayMode, doc.consolidations],
+      hier
+        ? computeHierarchy({
+            doc,
+            items: visible,
+            fins,
+            ref: refDay,
+            level: displayMode === "details" ? 3 : 2,
+            expanded: view.expanded,
+            collapsed: view.collapsedActions,
+            collapsedProjects: view.collapsedProjects,
+            hiddenProjects,
+            hideSettled: view.hideSettled,
+            finFilter: view.finFilter,
+            consolidations: doc.consolidations,
+          })
+        : computeRows(visible, {
+            hidden: settings.groupsHidden ?? [],
+            collapsed: settings.groupsCollapsed ?? [],
+            detailed: settings.groupsDetailed ?? [],
+            detailAll: view.detailAll,
+            portfolio: displayMode === "projects",
+            consolidations: doc.consolidations,
+          }),
+    [visible, settings.groupsHidden, settings.groupsCollapsed, settings.groupsDetailed, view.detailAll, displayMode, doc, hier, fins, refDay, view.expanded, view.collapsedActions, view.collapsedProjects, hiddenProjects, view.hideSettled, view.finFilter],
   )
-  const projects = visible.filter((i) => i.kind === "projeto")
+  const projects = visible.filter((i) => i.kind === "projeto" && !(i.projectId && hiddenProjects.includes(i.projectId)))
   const vig = items.find((i) => i.kind === "vigencia" && i.projectId === "p2") ?? items.find((i) => i.kind === "vigencia")
   // The documental marker is read from the baseline records, never from the active scenario.
   const docVig: DayRange | null = docVigRange(doc)
   const hypVig: DayRange | null = vig && docVig && (vig.range.end !== docVig.end || vig.range.start !== docVig.start) ? vig.range : null
-  const refDay = toDay(settings.referenceDate)
   const filter = view.projectFilter
   const dimmed = (it: EffItem) =>
     (filter.length > 0 && !filter.includes(it.projectId ?? "")) ||
@@ -263,6 +285,9 @@ export function TimelineCanvas() {
     setHover(null)
 
     if (kind === "g-collapse") return toggleGroup("groupsCollapsed", id as GroupId)
+    if (kind === "h-toggle") return v.toggleAction(id)
+    if (kind === "p-toggle") return v.set({ collapsedProjects: v.collapsedProjects.includes(id) ? v.collapsedProjects.filter((x) => x !== id) : [...v.collapsedProjects, id] })
+    if (kind === "fin") return st.selectFin(id)
     if (kind === "g-detail") return toggleGroup("groupsDetailed", id as GroupId)
     if (kind === "cons-label") {
       const ids = items.filter((i) => i.consolidation === id).map((i) => i.id)
@@ -560,8 +585,7 @@ export function TimelineCanvas() {
       >
         <defs>
           <pattern id="stripe-after" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)">
-            <rect width="8" height="8" fill={C.after} />
-            <line x1="0" y1="0" x2="0" y2="8" stroke="#FFFFFF" strokeWidth="2" strokeOpacity="0.28" />
+            <line x1="0" y1="0" x2="0" y2="8" stroke={C.after} strokeWidth="3" strokeOpacity="0.55" />
           </pattern>
           <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill={C.text2} />
@@ -586,7 +610,9 @@ export function TimelineCanvas() {
           {layout.rows.map((r, i) =>
             r.type === "group" ? (
               <rect key={`gb${i}`} x={LABEL_W} y={Y(r.top)} width={timeW} height={r.h} fill="#FFFFFF" fillOpacity={0.6} />
-            ) : (r.type === "item" || r.type === "consolidated") && r.index % 2 === 1 && !(r.type === "item" && r.virtual) ? (
+            ) : r.type === "project" ? (
+              <rect key={`pj${i}`} x={LABEL_W} y={Y(r.top)} width={timeW} height={r.h} fill="#F3F6FA" />
+            ) : (r.type === "item" || r.type === "consolidated" || r.type === "comp" || r.type === "note") && r.index % 2 === 1 && !(r.type === "item" && r.virtual) ? (
               <rect key={`z${i}`} x={LABEL_W} y={Y(r.top)} width={timeW} height={r.h} fill={C.zebra} fillOpacity={0.75} />
             ) : null,
           )}
@@ -614,6 +640,10 @@ export function TimelineCanvas() {
             })}
 
           {layout.rows.map((r, i) => {
+            if (r.type === "project") return <g key={`pr${r.projectId}${i}`}>{ProjectBar({ r })}</g>
+            if (r.type === "comp") return <g key={`cp${r.actionId}${r.comp}${i}`}>{CompBar({ r })}</g>
+            if (r.type === "note")
+              return <text key={`nt${i}`} x={LABEL_W + 14} y={Y(r.top) + r.h / 2 + 4} fontSize={11.5} fontStyle="italic" fill={r.tone === "warn" ? "#8A5A10" : C.text3} pointerEvents="none">{r.text}</text>
             if (r.type === "consolidated") return <g key={`c${r.key}${i}`}>{ConsolidatedBar({ r })}</g>
             if (r.type !== "item") return null
             if (r.portfolio) return <g key={`pf${r.item.id}`}>{PortfolioBar({ r })}</g>
@@ -646,7 +676,7 @@ export function TimelineCanvas() {
           {/* Reference date */}
           <line x1={X(refDay)} x2={X(refDay)} y1={BODY_TOP} y2={size.h} stroke="#5FA548" strokeWidth={2.5} pointerEvents="none" />
           {/* Vigência markers */}
-          {hypVig && <line x1={X(hypVig.end)} x2={X(hypVig.end)} y1={BODY_TOP} y2={size.h} stroke={C.navy} strokeWidth={2} strokeDasharray="7 5" pointerEvents="none" />}
+          {hypVig && <line x1={X(hypVig.end)} x2={X(hypVig.end)} y1={BODY_TOP} y2={size.h} stroke={C.scenario} strokeWidth={2} strokeDasharray="7 5" pointerEvents="none" />}
           {docVig && <line x1={X(docVig.end)} x2={X(docVig.end)} y1={BODY_TOP} y2={size.h} stroke={C.vigLine} strokeWidth={2.5} pointerEvents="none" />}
 
           {/* Annotations */}
@@ -666,7 +696,7 @@ export function TimelineCanvas() {
           )}
           {hypVig && X(hypVig.end) > LABEL_W && X(hypVig.end) < size.w && (
             <g transform={`translate(${X(hypVig.end) + 6},${size.h - 14})`}>
-              <text fill={C.navy}>┆ {fmtDate(fromDay(hypVig.end - 1))} · cenário simulado (não aprovado)</text>
+              <text fill={C.scenario}>┆ {fmtDate(fromDay(hypVig.end - 1))} · cenário simulado (não aprovado)</text>
             </g>
           )}
           {X(refDay) > LABEL_W && X(refDay) < size.w && (
@@ -800,6 +830,23 @@ export function TimelineCanvas() {
   // ── Row pieces ───────────────────────────────────────────────────────────
   function RowLabel({ r }: { r: Row }) {
     const y = Y(r.top)
+    if (r.type === "project") return ProjectLabel({ r })
+    if (r.type === "note") return null
+    if (r.type === "comp") {
+      const x = 14 + r.depth * 16
+      const label = r.comp === "sem_vinculo" ? COMP_LABEL.sem_vinculo : COMP_LABEL[r.comp]
+      const first = r.fins.find((f) => f.kind === "aquisicao") ?? r.fins[0]
+      return (
+        <g data-hit={first ? "fin" : "label"} data-id={first ? first.id : (r.actionId ?? "")} style={{ cursor: "pointer" }} opacity={r.action && dimmed(r.action) ? 0.4 : 1}>
+          <rect x={0} y={y} width={LABEL_W} height={r.h} fill={first && selectedFin === first.id ? "#E6F2FA" : r.index % 2 === 1 ? "#FAFBFD" : "#FFFFFF"} />
+          <path d={`M${x - 8},${y} V${y + r.h / 2} H${x - 2}`} fill="none" stroke="#C9D3DE" />
+          <text x={x + 2} y={y + r.h / 2 + 4} fontSize={11.5} fontWeight={600} fill={r.comp === "sem_vinculo" ? "#8A5A10" : C.text2}>{truncate(label, LABEL_W - x - 26, 11.5)}</text>
+          {r.fins.length > 0 && <text x={LABEL_W - 12} y={y + r.h / 2 + 4} fontSize={10.5} fill={C.text3} textAnchor="end">{r.fins.length}</text>}
+          <title>{`${label}${r.empty ? ` — ${r.empty}` : ` — ${r.fins.length} registro(s)`}. Cada registro financeiro é único; esta linha só o exibe.`}</title>
+        </g>
+      )
+    }
+    if ((r.type === "item" || r.type === "consolidated") && r.depth != null) return HierLabel({ r })
     if (r.type === "group") {
       const g = GROUPS.find((x) => x.id === r.group)!
       const color = GROUP_COLOR[r.group]
@@ -881,7 +928,8 @@ export function TimelineCanvas() {
     const it = r.item
     const top = Y(r.top)
     const cy = top + r.h / 2
-    const by = cy - BAR_H / 2
+    const BH = r.thin ? 16 : BAR_H
+    const by = cy - BH / 2
     const isSel = sel.has(it.id)
     const dim = dimmed(it)
     const color = itemColor(it.kind, colorOf(it.projectId), it.color)
@@ -896,14 +944,16 @@ export function TimelineCanvas() {
     const hitKind = docRow ? "item-static" : "item"
     const enter = (e: React.PointerEvent) => !gesture.current && setHover({ id: it.id, x: local(e).x, y: top + r.h, hyp: r.virtual === "hyp" })
     const leave = () => setHover((h) => (h?.id === it.id ? null : h))
+    const fsz = r.thin ? 10.5 : 11.5
 
     // Historic action without a dated source: an approximate interval, never a solid bar.
     if (it.dateUndetermined) {
       const mid = (Math.max(x1, LABEL_W) + Math.min(x2, size.w)) / 2
       const label = "data a validar"
+      const tags = r.info?.tags ?? []
       return (
         <g opacity={dim ? 0.3 : 1} onPointerEnter={enter} onPointerLeave={leave}>
-          <rect data-hit="item" data-id={it.id} x={x1} y={by} width={w} height={BAR_H} fill="transparent" style={{ cursor: "grab" }} />
+          <rect data-hit="item" data-id={it.id} x={x1} y={by} width={w} height={BH} fill="transparent" style={{ cursor: "grab" }} />
           <line x1={x1} x2={x2} y1={cy} y2={cy} stroke={C.plan} strokeWidth={2} strokeDasharray="2 4" pointerEvents="none" />
           <line x1={x1} x2={x1} y1={cy - 6} y2={cy + 6} stroke={C.plan} strokeWidth={2} pointerEvents="none" />
           <line x1={x2} x2={x2} y1={cy - 6} y2={cy + 6} stroke={C.plan} strokeWidth={2} pointerEvents="none" />
@@ -911,7 +961,9 @@ export function TimelineCanvas() {
             <rect x={mid - 52} y={cy - 10} width={104} height={20} rx={10} fill="#FFFFFF" stroke="#C9D3DE" />
             <text x={mid} y={cy + 4} fontSize={11} fontWeight={600} fill={C.text2} textAnchor="middle">{label}</text>
           </g>
-          {isSel && <rect x={x1 - 2} y={by - 2} width={w + 4} height={BAR_H + 4} rx={4} fill="none" stroke={C.selection} strokeWidth={2} pointerEvents="none" />}
+          {tags.length > 0 && Tags({ x: x2 + 10, y: cy - 8.5, tags, maxX: size.w - 8 })}
+          {ClipMarks({ x1, x2, y: by, h: BH, fill: C.plan })}
+          {isSel && <rect x={x1 - 2} y={by - 2} width={w + 4} height={BH + 4} rx={4} fill="none" stroke={C.selection} strokeWidth={2} pointerEvents="none" />}
         </g>
       )
     }
@@ -931,73 +983,100 @@ export function TimelineCanvas() {
     const afterMonths = after ? calendarMonthsTouched(after) : 0
     const afterW = after ? X(after.end) - X(after.start) : 0
     const shortDates = `${shortMonth(range.start)} – ${shortMonth(range.end - 1)}`
+    const room = (after ? X(after.start) : x2) - Math.max(x1, LABEL_W) - 16
     const innerLabel =
       r.virtual ? `até ${fmtDate(fromDay(range.end - 1))} · cenário`
       : docRow ? `até ${fmtDate(fromDay(range.end - 1))} · referência documental`
       : it.kind === "vigencia" ? `até ${fmtDate(fromDay(range.end - 1))}`
-      : it.kind === "curso" ? pickFit([offeringLabel(doc, it, true), offeringLabel(doc, it, false), shortDates], (after ? X(after.start) : x2) - Math.max(x1, LABEL_W) - 16)
-      : it.shortName ? pickFit([`${it.shortName} · ${shortDates}`, shortDates], (after ? X(after.start) : x2) - Math.max(x1, LABEL_W) - 16)
+      : it.kind === "curso" ? pickFit([offeringLabel(doc, it, true), offeringLabel(doc, it, false), shortDates], room)
+      : it.shortName ? pickFit([`${it.shortName} · ${shortDates}`, shortDates], room)
       : shortDates
-    const innerW = (after ? X(after.start) : x2) - Math.max(x1, LABEL_W) - 16
-    const fitsInside = textWidth(innerLabel, 11.5) < innerW
+    const fitsInside = textWidth(innerLabel, fsz) < room
     const narrow = w < 12
     const showAfterLabel = after && (it.kind === "curso" || it.kind === "turma" || isSel)
+    const labelX = Math.max(x1, LABEL_W) + 9
+    // Tags sit next to the label, inside the bar when there is room, otherwise after it.
+    const tags = r.info?.tags ?? []
+    const tagsInside = fitsInside ? labelX + textWidth(innerLabel, fsz) + 10 : null
+    const afterText = after && afterW > 56 ? (afterW > 150 ? `${afterMonths} meses após a vigência` : `+${afterMonths} m`) : null
+    const afterTextX = after ? Math.min(X(after.end), size.w) - 8 : 0
+    const tagMaxInside = afterText ? afterTextX - textWidth(afterText, fsz) - 10 : x2 - 6
+    const tagsTotal = tags.reduce((s2, t) => s2 + textWidth(t.label, 10) + 16, 0)
+    const tagX = tagsInside != null && tagsInside + Math.min(tagsTotal, 150) < tagMaxInside ? tagsInside : x2 + 10
+    const tagLimit = tagX === tagsInside ? tagMaxInside : size.w - 8
+    const parcels = it.kind === "bolsa" ? fins.filter((f) => f.kind === "parcela" && f.actionId === it.id) : []
 
     return (
       <g opacity={dim ? 0.3 : 1} onPointerEnter={enter} onPointerLeave={leave}>
         {it.baseRange && r.virtual === undefined && !docRow && (
-          <rect x={X(it.baseRange.start)} y={by - 2} width={Math.max(2, (it.baseRange.end - it.baseRange.start) * ppd)} height={BAR_H + 4} rx={4}
+          <rect x={X(it.baseRange.start)} y={by - 2} width={Math.max(2, (it.baseRange.end - it.baseRange.start) * ppd)} height={BH + 4} rx={4}
             fill="none" stroke={C.text3} strokeDasharray="2 3" pointerEvents="none" />
         )}
         {narrow ? (
           <>
             <circle data-hit={hitKind} data-id={it.id} cx={x1 + w / 2} cy={cy} r={6} fill={bs.fill} stroke={bs.stroke} strokeWidth={1.5} style={{ cursor: "grab" }} />
-            <text x={x1 + w / 2 + 11} y={cy + 4} fontSize={11.5} fill={C.text2} pointerEvents="none">{shortDates}</text>
+            <text x={x1 + w / 2 + 11} y={cy + 4} fontSize={fsz} fill={C.text2} pointerEvents="none">{shortDates}</text>
           </>
         ) : (
-          <rect data-hit={hitKind} data-id={it.id} x={x1} y={by} width={w} height={BAR_H} rx={3}
+          <rect data-hit={hitKind} data-id={it.id} x={x1} y={by} width={w} height={BH} rx={3}
             fill={bs.fill} fillOpacity={bs.fillOpacity} stroke={bs.stroke} strokeWidth={bs.strokeWidth} strokeDasharray={bs.dash}
             style={{ cursor: it.locked || docRow ? "pointer" : "grab" }} />
         )}
+        {/* After the vigência: moderate overlay on the same bar — the period continues, nothing is cut. */}
         {after && !narrow && (
-          <rect x={X(after.start)} y={by} width={Math.max(2, afterW)} height={BAR_H} rx={3} fill={status === "cenario" ? "#FFFFFF" : "url(#stripe-after)"}
-            stroke={C.after} strokeWidth={status === "cenario" ? 1.6 : 0} strokeDasharray={status === "cenario" ? "6 4" : undefined} pointerEvents="none" />
+          <g pointerEvents="none">
+            <rect x={X(after.start)} y={by} width={Math.max(2, afterW)} height={BH} rx={3} fill="url(#stripe-after)" />
+            <rect x={X(after.start)} y={by + BH - 3} width={Math.max(2, afterW)} height={3} fill={C.after} />
+          </g>
         )}
         {!narrow && (fitsInside ? (
-          <text x={Math.max(x1, LABEL_W) + 9} y={cy + 4} fontSize={11.5} fontWeight={600} fill={bs.text} pointerEvents="none">{innerLabel}</text>
-        ) : !after && x2 + 8 + textWidth(innerLabel, 11.5) < size.w ? (
-          <text x={x2 + 8} y={cy + 4} fontSize={11.5} fill={C.text2} pointerEvents="none">{innerLabel}</text>
+          <text x={labelX} y={cy + 4} fontSize={fsz} fontWeight={600} fill={bs.text} pointerEvents="none">{innerLabel}</text>
+        ) : !after && x2 + 8 + textWidth(innerLabel, fsz) < size.w ? (
+          <text x={x2 + 8} y={cy + 4} fontSize={fsz} fill={C.text2} pointerEvents="none">{innerLabel}</text>
         ) : null)}
+        {tags.length > 0 && !r.thin && Tags({ x: fitsInside || after ? tagX : Math.max(tagX, x2 + 10 + (fitsInside ? 0 : textWidth(innerLabel, fsz) + 8)), y: cy - 8.5, tags, maxX: tagLimit })}
         {status === "concluido" && w > 30 && <path d={`M${x2 - 18},${cy} l4,4 l8,-8`} stroke="#FFFFFF" strokeWidth={2} fill="none" pointerEvents="none" />}
-        {after && afterW > 56 && (
-          <text x={X(after.start) + afterW / 2} y={cy + 4} fontSize={11.5} fontWeight={700} fill={status === "cenario" ? C.afterText : "#FFFFFF"} textAnchor="middle" pointerEvents="none">
-            {afterW > 150 ? `${afterMonths} meses após a vigência` : `+${afterMonths} m`}
+        {afterText && (
+          <text x={afterTextX} y={cy + 4} fontSize={fsz} fontWeight={700} fill={status === "cenario" || status === "planejado" ? C.afterText : "#FFFFFF"} stroke={status === "cenario" || status === "planejado" ? "none" : color} strokeWidth={3} paintOrder="stroke" textAnchor="end" pointerEvents="none">
+            {afterText}
           </text>
         )}
         {showAfterLabel && afterW <= 56 && (
-          <text x={X(after!.end) + 8} y={cy + 4} fontSize={11.5} fontWeight={700} fill={C.afterText} pointerEvents="none">+{afterMonths} meses após a vigência</text>
+          <text x={X(after!.end) + 8} y={cy + 4} fontSize={fsz} fontWeight={700} fill={C.afterText} pointerEvents="none">+{afterMonths} meses após a vigência</text>
         )}
+        {parcels.map((f) => {
+          const pr = finRange(f)
+          if (!pr) return null
+          const px = X(pr.start)
+          const pc = f.parcelStatus === "paga" ? C.paid : f.parcelStatus === "devida" ? C.after : f.parcelStatus === "pendente" ? C.amber : C.muted
+          return (
+            <circle key={f.id} data-hit="fin" data-id={f.id} cx={px} cy={by - 1} r={3.5} fill={f.parcelStatus === "paga" ? pc : "#FFFFFF"} stroke={pc} strokeWidth={1.5} style={{ cursor: "pointer" }}>
+              <title>{`${f.name} · ${PARCEL_LABEL[f.parcelStatus ?? "prevista"]} · ${fmtDate(f.start!)}`}</title>
+            </circle>
+          )
+        })}
         {it.changed && !docRow && (
           <g pointerEvents="none" transform={`translate(${x1},${by - 9})`}>
-            <rect width={50} height={12} rx={2} fill={C.navy} />
+            <rect width={50} height={12} rx={2} fill={C.scenario} />
             <text x={25} y={9} fontSize={8.5} fontWeight={800} textAnchor="middle" fill="#FFFFFF" letterSpacing={0.6}>CENÁRIO</text>
           </g>
         )}
+        {!narrow && ClipMarks({ x1, x2, y: by, h: BH, fill: bs.text })}
         {isSel && (
           <>
-            <rect x={x1 - 2} y={by - 2} width={w + 4} height={BAR_H + 4} rx={4} fill="none" stroke={C.selection} strokeWidth={2} pointerEvents="none" />
+            <rect x={x1 - 2} y={by - 2} width={w + 4} height={BH + 4} rx={4} fill="none" stroke={C.selection} strokeWidth={2} pointerEvents="none" />
             {!it.locked && !docRow && !narrow && (
               <>
-                <rect data-hit="item-l" data-id={it.id} x={x1 - 4} y={by + 4} width={8} height={BAR_H - 8} rx={2} fill="#FFFFFF" stroke={C.selection} strokeWidth={1.5} style={{ cursor: "ew-resize" }} />
-                <rect data-hit="item-r" data-id={it.id} x={x2 - 4} y={by + 4} width={8} height={BAR_H - 8} rx={2} fill="#FFFFFF" stroke={C.selection} strokeWidth={1.5} style={{ cursor: "ew-resize" }} />
+                <rect data-hit="item-l" data-id={it.id} x={x1 - 4} y={by + 4} width={8} height={Math.max(6, BH - 8)} rx={2} fill="#FFFFFF" stroke={C.selection} strokeWidth={1.5} style={{ cursor: "ew-resize" }} />
+                <rect data-hit="item-r" data-id={it.id} x={x2 - 4} y={by + 4} width={8} height={Math.max(6, BH - 8)} rx={2} fill="#FFFFFF" stroke={C.selection} strokeWidth={1.5} style={{ cursor: "ew-resize" }} />
               </>
             )}
           </>
         )}
         {!isSel && !it.locked && !docRow && !narrow && w > 16 && (
           <>
-            <rect data-hit="item-l" data-id={it.id} x={x1 - 3} y={by} width={7} height={BAR_H} fill="transparent" style={{ cursor: "ew-resize" }} />
-            <rect data-hit="item-r" data-id={it.id} x={x2 - 4} y={by} width={7} height={BAR_H} fill="transparent" style={{ cursor: "ew-resize" }} />
+            <rect data-hit="item-l" data-id={it.id} x={x1 - 3} y={by} width={7} height={BH} fill="transparent" style={{ cursor: "ew-resize" }} />
+            <rect data-hit="item-r" data-id={it.id} x={x2 - 4} y={by} width={7} height={BH} fill="transparent" style={{ cursor: "ew-resize" }} />
           </>
         )}
       </g>
@@ -1090,6 +1169,255 @@ export function TimelineCanvas() {
     )
   }
 
+  /** Section header of the hierarchy: one project, collapsible. */
+  function ProjectLabel({ r }: { r: Extract<Row, { type: "project" }> }) {
+    const y = Y(r.top)
+    const p = doc.projects.find((x) => x.id === r.projectId)
+    const color = p?.color ?? C.slate
+    const role = projectRole(r.item, refDay)
+    const isSel = !!r.item && sel.has(r.item.id)
+    return (
+      <g>
+        <rect x={0} y={y} width={LABEL_W} height={r.h} fill={isSel ? "#E6F2FA" : "#F3F6FA"} />
+        <rect x={0} y={y} width={4} height={r.h} fill={color} />
+        {r.projectId && (
+          <g data-hit="p-toggle" data-id={r.projectId} style={{ cursor: "pointer" }}>
+            <rect x={6} y={y} width={24} height={r.h} fill="transparent" />
+            <path d={r.collapsed ? `M14,${y + r.h / 2 - 5} l5,5 l-5,5` : `M12,${y + r.h / 2 - 2} l5,5 l5,-5`} fill="none" stroke={color} strokeWidth={2} />
+            <title>{r.collapsed ? "Expandir projeto" : "Recolher projeto"}</title>
+          </g>
+        )}
+        <g data-hit={r.item ? "label" : undefined} data-id={r.item?.id} style={{ cursor: r.item ? "pointer" : "default" }}>
+          <text x={32} y={y + 19} fontSize={12} fontWeight={800} letterSpacing={0.9} fill={color}>{(p?.name ?? "Sem projeto vinculado").toUpperCase()}</text>
+          <text x={32} y={y + 35} fontSize={11.5} fill={C.text2}>{truncate(`${role}${r.item ? ` · ${r.item.precision === "year" ? `${r.item.start.slice(0, 4)}–${r.item.end.slice(0, 4)}` : `${shortMonth(r.item.range.start)} – ${shortMonth(r.item.range.end - 1)}`}` : ""}`, LABEL_W - 70, 11.5)}</text>
+          {r.collapsed && <text x={LABEL_W - 12} y={y + 27} fontSize={10.5} fill={C.text3} textAnchor="end">{r.count} ações</text>}
+          <title>{`${p?.name ?? ""} — ${p?.phase ?? ""}. Clique para o resumo do projeto.`}</title>
+        </g>
+      </g>
+    )
+  }
+
+  /** Label of an action or of a component record, indented under its project. */
+  function HierLabel({ r }: { r: Extract<Row, { type: "item" | "consolidated" }> }) {
+    const y = Y(r.top)
+    const depth = r.depth ?? 1
+    const x = 14 + depth * 16
+    const it = r.type === "item" ? r.item : r.members[0]
+    const isSel = r.type === "item" ? sel.has(it.id) : r.members.every((m) => sel.has(m.id))
+    const st = statusOf(it, refDay)
+    const virtual = r.type === "item" && r.virtual
+    let line1: string
+    let line2 = ""
+    if (r.type === "consolidated") {
+      line1 = r.name
+      line2 = r.subtitle ?? `${r.members.length} ciclos`
+    } else if (virtual) {
+      line1 = "Vigência — cenário simulado"
+      line2 = "hipótese, não aprovada"
+    } else if (it.kind === "curso") {
+      const lab = offeringLabel(doc, it, false)
+      const [a, ...b] = lab.split(" · ")
+      line1 = a
+      line2 = b.join(" · ")
+    } else {
+      line1 = r.thin ? (it.consolidation ? it.name.replace(/^.*?—\s*/, "") : shortNameOf(it)) : (it.shortName ?? it.name)
+      line2 = r.thin ? "" : it.kind === "vigencia" ? `até ${fmtDate(fromDay((it.baseRange ?? it.range).end - 1))} · documental` : `${KIND_LABEL[it.kind]}${it.dateUndetermined ? " · data a validar" : ""}`
+    }
+    if (r.via) line2 = r.via
+    const hit = r.type === "consolidated" ? "cons-label" : "label"
+    const hitId = r.type === "consolidated" ? r.key : it.id
+    const fs = r.thin ? 11.5 : 12.5
+    return (
+      <g opacity={dimmed(it) ? 0.4 : 1}>
+        <g data-hit={hit} data-id={hitId} style={{ cursor: "pointer" }}>
+          <rect x={0} y={y} width={LABEL_W} height={r.h} fill={isSel ? "#E6F2FA" : r.index % 2 === 1 && !virtual ? "#FAFBFD" : "#FFFFFF"} />
+          {isSel && <rect x={0} y={y} width={3} height={r.h} fill={C.blue} />}
+          {depth >= 2 && <path d={`M${x - 8},${y} V${y + r.h / 2} H${x - 2}`} fill="none" stroke="#C9D3DE" />}
+          {line2 && !r.thin ? (
+            <text fontSize={fs} fill={virtual ? C.scenario : C.text}>
+              <tspan x={x + 14} y={y + r.h / 2 - 2} fontWeight={700} fontStyle={virtual ? "italic" : undefined}>{truncate(line1, LABEL_W - x - 44, fs)}</tspan>
+              <tspan x={x + 14} y={y + r.h / 2 + 11} fontSize={10.5} fill={r.via ? "#8A5A10" : C.text2}>{truncate(line2, LABEL_W - x - 44, 10.5)}</tspan>
+            </text>
+          ) : (
+            <text x={x + (r.thin ? 2 : 14)} y={y + r.h / 2 + 4} fontSize={fs} fontWeight={r.thin ? 500 : 700} fill={virtual ? C.scenario : r.thin ? C.text2 : C.text}>{truncate(line1, LABEL_W - x - 40, fs)}</text>
+          )}
+          {!virtual && <StatusGlyph x={LABEL_W - 16} y={y + r.h / 2} status={st.key} pending={st.pending} color={itemColor(it.kind, colorOf(it.projectId), it.color)} />}
+          <title>{`${r.type === "consolidated" ? r.name : it.name}\n${KIND_LABEL[it.kind]} · ${st.label}${r.via ? `\n${r.via}` : ""}`}</title>
+        </g>
+        {r.toggle && (
+          <g data-hit="h-toggle" data-id={r.toggle} style={{ cursor: "pointer" }} aria-label={r.expanded ? "Recolher ação" : "Expandir ação"}>
+            <rect x={x - 4} y={y + r.h / 2 - 10} width={18} height={20} rx={4} fill={r.expanded ? "#E6F2FA" : "transparent"} />
+            <path d={r.expanded ? `M${x},${y + r.h / 2 - 2} l5,5 l5,-5` : `M${x + 2},${y + r.h / 2 - 5} l5,5 l-5,5`} fill="none" stroke={C.text2} strokeWidth={1.8} />
+            <title>{r.expanded ? "Recolher componentes" : "Expandir: aquisição, bolsas, NF e materiais"}</title>
+          </g>
+        )}
+      </g>
+    )
+  }
+
+  /** The project's cycle, drawn thin inside its section header. */
+  function ProjectBar({ r }: { r: Extract<Row, { type: "project" }> }) {
+    const it = r.item
+    if (!it) return null
+    const top = Y(r.top)
+    const color = colorOf(it.projectId)
+    const hyp = it.certainty === "hipotese"
+    const x1 = X(it.range.start)
+    const x2 = X(it.range.end)
+    const isSel = sel.has(it.id)
+    const role = projectRole(it, refDay)
+    const y = top + r.h / 2 - 7
+    return (
+      <g opacity={dimmed(it) ? 0.3 : 1}>
+        <rect data-hit="item" data-id={it.id} x={x1} y={y} width={Math.max(2, x2 - x1)} height={14} rx={3}
+          fill={hyp ? "#FFFFFF" : color} fillOpacity={hyp ? 1 : 0.9} stroke={color} strokeWidth={hyp ? 1.6 : 0} strokeDasharray={hyp ? "6 4" : undefined} style={{ cursor: "grab" }} />
+        <text x={Math.max(x1, LABEL_W) + 8} y={y - 4} fontSize={11} fontWeight={700} fill={hyp ? color : C.text2} pointerEvents="none">
+          {truncate(`${role}${hyp ? " · proposta em modelagem, não aprovada" : ""}`, Math.max(0, Math.min(x2, size.w) - Math.max(x1, LABEL_W) - 12), 11)}
+        </text>
+        {ClipMarks({ x1, x2, y, h: 14, fill: hyp ? color : "#FFFFFF" })}
+        {isSel && <rect x={x1 - 2} y={y - 2} width={x2 - x1 + 4} height={18} rx={4} fill="none" stroke={C.selection} strokeWidth={2} pointerEvents="none" />}
+      </g>
+    )
+  }
+
+  /** Discreet continuity marks when a bar starts before or ends after the visible window. */
+  function ClipMarks({ x1, x2, y, h, fill }: { x1: number; x2: number; y: number; h: number; fill: string }) {
+    const cy = y + h / 2
+    return (
+      <g pointerEvents="none">
+        {x1 < LABEL_W && x2 > LABEL_W + 14 && <path data-clip="left" d={`M${LABEL_W + 4},${cy} l5,-4 v8 z`} fill={fill} />}
+        {x2 > size.w && x1 < size.w - 14 && <path data-clip="right" d={`M${size.w - 6},${cy} l-5,-4 v8 z`} fill={fill} />}
+      </g>
+    )
+  }
+
+  /** Compact tags next to an action's label. */
+  function Tags({ x, y, tags, maxX }: { x: number; y: number; tags: Tag[]; maxX: number }) {
+    let cx = x
+    const out: React.ReactNode[] = []
+    for (const t of tags) {
+      const w = textWidth(t.label, 10) + 12
+      if (cx + w > maxX) break
+      const pal = TAG_PALETTE[t.tone]
+      out.push(
+        <g key={t.label} transform={`translate(${cx},${y})`}>
+          <rect width={w} height={17} rx={8.5} fill={pal.bg} stroke={pal.bd} />
+          <text x={w / 2} y={12} fontSize={10} fontWeight={700} fill={pal.fg} textAnchor="middle">{t.label}</text>
+          {t.title && <title>{t.title}</title>}
+        </g>,
+      )
+      cx += w + 4
+    }
+    return <g pointerEvents="none" data-tags="">{out}</g>
+  }
+
+  /** Financial / documentary components as markers at their real dates — never stretched. */
+  function CompBar({ r }: { r: Extract<Row, { type: "comp" }> }) {
+    const top = Y(r.top)
+    const cy = top + r.h / 2
+    const action = r.action
+    const dim = action ? dimmed(action) : false
+    const startX = Math.max(action ? X(action.range.start) : LABEL_W, LABEL_W) + 8
+    if (r.empty) return <text x={startX} y={cy + 4} fontSize={11} fontStyle="italic" fill={C.text3} opacity={dim ? 0.4 : 1} pointerEvents="none">{r.empty}</text>
+    let rightmost = -Infinity
+    const parts: React.ReactNode[] = []
+    const summaries: { f: FinRecord; text: string; tone: string }[] = []
+    for (const f of r.fins) {
+      const isSelF = selectedFin === f.id
+      if (f.kind === "aquisicao") {
+        const st = f.acqStatus ?? "planejado"
+        const warn = acqWarnings(fins, f)
+        const { total } = paidOf(fins, f)
+        const text = [
+          ACQ_STATUS_LABEL[st] + (st === "integralmente_pago" || st === "parcialmente_pago" ? " (registro)" : ""),
+          f.supplier ? `fornecedor ${f.supplier}` : null,
+          total != null ? `pago ${total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : st === "integralmente_pago" || st === "parcialmente_pago" ? "data e valor do pagamento não informados" : null,
+          PROOF_LABEL[f.proof].toLowerCase(),
+        ].filter(Boolean).join(" · ")
+        summaries.push({ f, text, tone: st === "integralmente_pago" ? C.paid : warn.length ? "#8A5A10" : C.text2 })
+        // Dated steps of the acquisition flow, each at its own date.
+        const dated = [
+          ...(f.contractDate ? [{ label: "contrato", date: f.contractDate }] : []),
+          ...(f.steps ?? []).filter((s) => s.done && s.date && !(s.id === "contrato" && f.contractDate)).map((s) => ({ label: STEP_SHORT[s.id] ?? s.id, date: s.date! })),
+        ]
+        for (const d of dated) {
+          const x = X(toDay(d.date))
+          rightmost = Math.max(rightmost, x + 8 + textWidth(d.label, 10.5))
+          parts.push(
+            <g key={`${f.id}${d.label}`} data-hit="fin" data-id={f.id} style={{ cursor: "pointer" }}>
+              <path d={`M${x},${cy - 6} L${x + 6},${cy} L${x},${cy + 6} L${x - 6},${cy} Z`} fill={C.navy} stroke={isSelF ? C.selection : "#FFFFFF"} strokeWidth={isSelF ? 2 : 1} />
+              <text x={x + 9} y={cy + 4} fontSize={10.5} fontWeight={600} fill={C.navy}>{d.label}</text>
+              <title>{`${f.name} · ${d.label} em ${fmtDate(d.date)}`}</title>
+            </g>,
+          )
+        }
+        continue
+      }
+      const rg = finRange(f)
+      const label = f.kind === "parcela" ? `${PARCEL_LABEL[f.parcelStatus ?? "prevista"]}` : f.docNumber ? `${f.kind === "nf" ? "NF " : ""}${f.docNumber}` : f.name
+      if (!rg) {
+        summaries.push({ f, text: `${f.name} · data não informada`, tone: C.text3 })
+        continue
+      }
+      const x1 = X(rg.start)
+      const x2 = X(rg.end)
+      const proven = f.realized && f.proof === "comprovado"
+      const fill = proven ? C.paid : f.realized ? C.slate : "#FFFFFF"
+      const stroke = proven ? C.paid : f.realized ? C.slate : C.muted
+      const titleText = `${FIN_KIND_LABEL[f.kind]} · ${f.name}\n${f.dateUndetermined ? `janela ${fmtDate(f.start!)} – ${fmtDate(f.end ?? f.start!)} (data a definir)` : fmtDate(f.start!) + (f.end && f.end !== f.start ? ` – ${fmtDate(f.end)}` : "")}\n${f.realized ? "realizado" : "previsto"} · ${PROOF_LABEL[f.proof].toLowerCase()}${f.value != null ? ` · ${f.value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : " · valor não informado"}`
+      if (f.dateUndetermined) {
+        // Only a window is known: a dashed bracket, never a point.
+        rightmost = Math.max(rightmost, x2 + 8 + textWidth(`${label} · data a definir`, 10.5))
+        parts.push(
+          <g key={f.id} data-hit="fin" data-id={f.id} style={{ cursor: "pointer" }}>
+            <rect x={x1} y={cy - 7} width={Math.max(4, x2 - x1)} height={14} fill="transparent" />
+            <path d={`M${x1},${cy - 6} v12 M${x1},${cy} H${x2} M${x2},${cy - 6} v12`} fill="none" stroke={isSelF ? C.selection : C.muted} strokeWidth={isSelF ? 2.4 : 1.6} strokeDasharray="4 3" />
+            <text x={x2 + 8} y={cy + 4} fontSize={10.5} fontWeight={600} fill={C.text2}>{label} · data a definir</text>
+            <title>{titleText}</title>
+          </g>,
+        )
+        continue
+      }
+      const point = x2 - x1 < 10
+      rightmost = Math.max(rightmost, (point ? x1 : x2) + 10 + textWidth(label, 10.5))
+      parts.push(
+        <g key={f.id} data-hit="fin" data-id={f.id} style={{ cursor: "pointer" }}>
+          {point ? (
+            f.kind === "nf" ? (
+              <path d={`M${x1},${cy - 7} L${x1 + 7},${cy} L${x1},${cy + 7} L${x1 - 7},${cy} Z`} fill={fill} stroke={isSelF ? C.selection : stroke} strokeWidth={isSelF ? 2.4 : 1.6} strokeDasharray={f.realized ? undefined : "2 2"} />
+            ) : f.kind === "pagamento" || f.kind === "parcela" ? (
+              <circle cx={x1} cy={cy} r={6} fill={f.kind === "parcela" && f.parcelStatus === "paga" ? C.paid : fill} stroke={isSelF ? C.selection : stroke} strokeWidth={isSelF ? 2.4 : 1.6} strokeDasharray={f.realized ? undefined : "2 2"} />
+            ) : (
+              <rect x={x1 - 6} y={cy - 6} width={12} height={12} rx={2} fill={fill} stroke={isSelF ? C.selection : stroke} strokeWidth={isSelF ? 2.4 : 1.6} strokeDasharray={f.realized ? undefined : "2 2"} />
+            )
+          ) : (
+            <rect x={x1} y={cy - 6} width={x2 - x1} height={12} rx={3} fill={f.realized ? fill : "#FFFFFF"} fillOpacity={f.realized ? 0.85 : 1} stroke={isSelF ? C.selection : stroke} strokeWidth={isSelF ? 2.4 : 1.4} strokeDasharray={f.realized ? undefined : "4 3"} />
+          )}
+          {f.realized && f.proof === "pendente" && <circle cx={(point ? x1 : x2) + 5} cy={cy - 6} r={3.5} fill="#FFF4D6" stroke={C.amber} />}
+          <text x={(point ? x1 + 10 : x2 + 8)} y={cy + 4} fontSize={10.5} fontWeight={600} fill={proven ? C.paid : C.text2}>{label}</text>
+          <title>{titleText}</title>
+        </g>,
+      )
+    }
+    let sx = Math.max(startX, rightmost + 14)
+    return (
+      <g opacity={dim ? 0.35 : 1}>
+        {parts}
+        {summaries.map((s) => {
+          const x = sx
+          sx += textWidth(s.text, 11) + 22
+          return (
+            <g key={`s${s.f.id}`} data-hit="fin" data-id={s.f.id} style={{ cursor: "pointer" }}>
+              <rect x={x - 4} y={cy - 9} width={textWidth(s.text, 11) + 10} height={18} rx={4} fill={selectedFin === s.f.id ? "#E6F2FA" : "#FFFFFF"} fillOpacity={0.94} stroke={selectedFin === s.f.id ? C.selection : "#E2E8F0"} />
+              <text x={x + 1} y={cy + 4} fontSize={11} fontWeight={600} fill={s.tone}>{s.text}</text>
+              <title>{`${s.f.name}${s.f.notes ? `\n${s.f.notes}` : ""}`}</title>
+            </g>
+          )
+        })}
+      </g>
+    )
+  }
+
   function AnnotationShape({ a }: { a: Annotation }) {
     const linked = a.linkedItemId ? byId.get(a.linkedItemId) : undefined
     let day: number
@@ -1147,6 +1475,34 @@ export function TimelineCanvas() {
       </g>
     )
   }
+}
+
+const TAG_PALETTE: Record<Tag["tone"], { bg: string; fg: string; bd: string }> = {
+  paid: { bg: "#E7F4EE", fg: "#1C6B4B", bd: "#9FD3BB" },
+  pending: { bg: "#FFF3E6", fg: "#9A4A08", bd: "#F6C99A" },
+  plan: { bg: "#F1F4F8", fg: "#475569", bd: "#CBD5E1" },
+  neutral: { bg: "#F1F4F8", fg: "#475569", bd: "#CBD5E1" },
+  scenario: { bg: "#F1ECFB", fg: "#5B3BA8", bd: "#C9B8EE" },
+  warn: { bg: "#FFF8DB", fg: "#6B4E00", bd: "#E3C25C" },
+  info: { bg: "#E8F3FA", fg: "#0B5F8C", bd: "#A9D2EA" },
+}
+
+const STEP_SHORT: Record<string, string> = {
+  planejamento: "planejamento",
+  negociacao: "negociação concluída",
+  proposta: "proposta recebida",
+  contrato: "contrato",
+  nf: "NF emitida",
+  pagamento: "pagamento",
+  comprovacao: "comprovação",
+}
+
+/** Histórico / Ciclo atual / Proposta futura — computed from the cycle and the reference date. */
+function projectRole(it: EffItem | undefined, ref: number) {
+  if (!it) return "Ações sem projeto"
+  if (it.certainty === "hipotese" || it.range.start > ref) return "Proposta futura"
+  if (it.range.end <= ref) return "Histórico"
+  return "Ciclo atual"
 }
 
 /** First label that fits the available width. */

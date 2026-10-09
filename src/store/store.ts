@@ -44,6 +44,9 @@ export interface StudioState {
   compareId: string | null
   selection: string[]
   selectedAnnotation: string | null
+  /** V8: a financial record selected on a component row. */
+  selectedFin: string | null
+  selectFin: (id: string | null) => void
   clipboard: Item[]
   designMode: boolean
   scene: number
@@ -156,7 +159,7 @@ function mapScenario(d: StudioDoc, id: string, fn: (s: Scenario) => Scenario): S
 }
 
 /** Writes a patch to the right place: the baseline record, a scenario override, or a scenario-only item. */
-const VISUAL_KEYS = new Set(["lane", "layer", "color", "detail", "turmaIds", "consolidation", "partner", "shortName", "courseId"])
+const VISUAL_KEYS = new Set(["lane", "layer", "color", "detail", "turmaIds", "consolidation", "partner", "shortName", "courseId", "funding"])
 
 /**
  * Composition fields (row order, group, colour) belong to the record's presentation, not to its
@@ -224,6 +227,8 @@ export const useStudio = create<StudioState>((set, get) => ({
   compareId: null,
   selection: [],
   selectedAnnotation: null,
+  selectedFin: null,
+  selectFin: (id) => set({ selectedFin: id, selection: [], selectedAnnotation: null }),
   clipboard: [],
   designMode: false,
   scene: 0,
@@ -413,7 +418,7 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   addAnnotation: (a) => {
     get().commit("anotação", (d) => ({ ...d, annotations: [...d.annotations, a] }))
-    set({ selectedAnnotation: a.id, selection: [] })
+    set({ selectedAnnotation: a.id, selection: [], selectedFin: null })
   },
   patchAnnotation: (id, patch, live) => {
     const fn = (d: StudioDoc) => ({ ...d, annotations: d.annotations.map((a) => (a.id === id ? { ...a, ...patch } : a)) })
@@ -485,18 +490,18 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   select: (ids, additive) => {
     const cur = get().selection
-    if (!additive) set({ selection: ids, selectedAnnotation: null })
+    if (!additive) set({ selection: ids, selectedAnnotation: null, selectedFin: null })
     else {
       const next = new Set(cur)
       ids.forEach((i) => (next.has(i) ? next.delete(i) : next.add(i)))
-      set({ selection: [...next], selectedAnnotation: null })
+      set({ selection: [...next], selectedAnnotation: null, selectedFin: null })
     }
   },
   setMode: (m) => {
     set({ mode: m })
     get().log({ label: m === "board" ? "abrir Modo Diretoria" : "voltar ao Estúdio", kind: "agent", status: "ok" })
   },
-  setScene: (n) => set({ scene: Math.max(0, Math.min(3, n)) }),
+  setScene: (n) => set({ scene: Math.max(0, Math.min(4, n)) }),
   setDesignMode: (v) => set({ designMode: v }),
   setEditing: (id) => set({ editingItemId: id }),
   toast: (text, tone = "info") => {

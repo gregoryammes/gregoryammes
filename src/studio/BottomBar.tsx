@@ -22,7 +22,7 @@ export function CanvasToolbar() {
   const snap = useStudio((s) => s.doc.settings.snap)
   const commit = useStudio((s) => s.commit)
   return (
-    <div className="pointer-events-auto absolute bottom-4 left-3 z-20 flex items-center gap-0.5 rounded-xl border bg-white p-1 shadow-lg shadow-slate-900/10">
+    <div className="pointer-events-auto absolute bottom-4 left-[276px] z-20 flex items-center gap-0.5 rounded-xl border bg-white p-1 shadow-lg shadow-slate-900/10">
       {TOOLS.map((t) => (
         <button
           key={t.id}
@@ -59,21 +59,26 @@ export function Legend() {
       {opts.stripes && (
         <defs>
           <pattern id="lg-st" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
-            <rect width="6" height="6" fill={C.after} />
-            <line x1="0" y1="0" x2="0" y2="6" stroke="#fff" strokeWidth="1.6" strokeOpacity="0.3" />
+            <rect width="6" height="6" fill={C.blue} />
+            <line x1="0" y1="0" x2="0" y2="6" stroke={C.after} strokeWidth="2.4" strokeOpacity="0.7" />
           </pattern>
         </defs>
       )}
       <rect x="1" y="1" width="24" height="10" rx="2" fill={opts.stripes ? "url(#lg-st)" : fill} fillOpacity={opts.op ?? 1} stroke={opts.stroke ?? "none"} strokeWidth={1.4} strokeDasharray={opts.dash} />
     </svg>
   )
+  const mk = (shape: React.ReactNode) => <svg width="16" height="14" aria-hidden="true">{shape}</svg>
   const items: [React.ReactNode, string][] = [
-    [sw(C.blue), "em execução / previsto"],
+    [sw(C.blue), "execução educacional"],
     [sw(C.blue, { op: 0.6 }), "período encerrado"],
-    [sw(C.plan, { op: 0.25, stroke: C.plan }), "planejado"],
-    [sw("#fff", { stroke: C.navy, dash: "5 3" }), "cenário / proposta"],
-    [sw("#E4E9F0", { stroke: "#B8C3D1", dash: "2 2" }), "não confirmado"],
     [sw("", { stripes: true }), "após a vigência (≠ sem cobertura)"],
+    [sw("#fff", { stroke: C.scenario, dash: "5 3" }), "cenário / hipótese"],
+    [sw(C.plan, { op: 0.25, stroke: C.plan }), "planejado"],
+    [sw("#E4E9F0", { stroke: "#B8C3D1", dash: "2 2" }), "não confirmado"],
+    [mk(<circle cx="8" cy="7" r="5" fill={C.paid} />), "evento financeiro comprovado"],
+    [mk(<circle cx="8" cy="7" r="5" fill={C.slate} />), "realizado, comprovação pendente"],
+    [mk(<path d="M8,2 L13,7 L8,12 L3,7 Z" fill="#fff" stroke={C.muted} strokeWidth="1.5" strokeDasharray="2 2" />), "previsto (NF / pagamento)"],
+    [<svg key="w" width="26" height="14" aria-hidden="true"><path d="M2,3 v8 M2,7 H24 M24,3 v8" fill="none" stroke={C.muted} strokeWidth="1.5" strokeDasharray="3 2" /></svg>, "janela prevista, data a definir"],
     [<svg key="d" width="26" height="12" aria-hidden="true"><line x1="1" x2="25" y1="6" y2="6" stroke={C.plan} strokeWidth="2" strokeDasharray="2 3" /></svg>, "data a validar"],
     [<svg key="g" width="14" height="12" aria-hidden="true"><circle cx="7" cy="6" r="4.5" fill="#FFF4D6" stroke={C.amber} /></svg>, "informação a validar"],
   ]
@@ -81,7 +86,7 @@ export function Legend() {
     <div className="scroll-thin flex items-center gap-x-3.5 overflow-x-auto text-[11px] whitespace-nowrap text-muted-foreground">
       <span className="flex items-center gap-1.5"><span className="h-3 w-0.5 bg-[#5FA548]" /> referência (hoje)</span>
       <span className="flex items-center gap-1.5"><span className="h-3 w-0.5 bg-[#C2410C]" /> fim da vigência (documental)</span>
-      <span className="flex items-center gap-1.5"><span className="h-3 border-l-2 border-dashed border-navy" /> vigência em cenário</span>
+      <span className="flex items-center gap-1.5"><span className="h-3 border-l-2 border-dashed border-[#6D4AC4]" /> vigência em cenário</span>
       {items.map(([g, l], i) => (
         <span key={i} className="flex items-center gap-1.5">{g}{l}</span>
       ))}

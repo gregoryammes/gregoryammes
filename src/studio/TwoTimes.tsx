@@ -220,8 +220,8 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
             )}
             {docVig && hypVig && (
               <g>
-                <rect x={X(docVig.end)} y={R1 + 20 * k} width={Math.max(0, X(hypVig.end) - X(docVig.end))} height={34 * k} rx={4} fill="#fff" stroke={C.navy} strokeWidth={2} strokeDasharray="7 5" />
-                <text x={X(docVig.end) + 8 * k} y={R1 + 42 * k} fontSize={fs(11)} fontWeight={700} fill={C.navy}>cenário: até {fmtDate(fromDay(hypVig.end - 1))}</text>
+                <rect x={X(docVig.end)} y={R1 + 20 * k} width={Math.max(0, X(hypVig.end) - X(docVig.end))} height={34 * k} rx={4} fill="#fff" stroke={C.scenario} strokeWidth={2} strokeDasharray="7 5" />
+                <text x={X(docVig.end) + 8 * k} y={R1 + 42 * k} fontSize={fs(11)} fontWeight={700} fill={C.scenario}>cenário: até {fmtDate(fromDay(hypVig.end - 1))}</text>
               </g>
             )}
             {marcos.map((m) => (
@@ -300,7 +300,7 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
 
           {/* Reference date and the documental / hypothetical ends */}
           <line x1={X(ref)} x2={X(ref)} y1={R1 - 10 * k} y2={H - 40 * k} stroke="#5FA548" strokeWidth={2 * k} />
-          {hypVig && <line x1={X(hypVig.end)} x2={X(hypVig.end)} y1={R1 - 10 * k} y2={H - 40 * k} stroke={C.navy} strokeWidth={1.8 * k} strokeDasharray="7 5" />}
+          {hypVig && <line x1={X(hypVig.end)} x2={X(hypVig.end)} y1={R1 - 10 * k} y2={H - 40 * k} stroke={C.scenario} strokeWidth={1.8 * k} strokeDasharray="7 5" />}
           {docVig && <line x1={X(docVig.end)} x2={X(docVig.end)} y1={AX + 46 * k} y2={H - 40 * k} stroke={C.vigLine} strokeWidth={(step === 2 ? 4.5 : 2.2) * k} style={{ transition: "stroke-width 250ms" }} />}
           {step === 2 && docVig && (
             <g>
@@ -310,7 +310,7 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
           )}
           <g fontSize={fs(11.5)} fontWeight={700}>
             {docVig && <text x={X(docVig.end) + 6} y={H - 22 * k} fill={C.vigLine}>↑ {fmtDate(fromDay(docVig.end - 1))} · encerramento de referência (linha de base documental)</text>}
-            {hypVig && <text x={X(hypVig.end) + 6} y={H - 6 * k} fill={C.navy}>┆ {fmtDate(fromDay(hypVig.end - 1))} · hipótese de cenário</text>}
+            {hypVig && <text x={X(hypVig.end) + 6} y={H - 6 * k} fill={C.scenario}>┆ {fmtDate(fromDay(hypVig.end - 1))} · hipótese de cenário</text>}
             <text x={X(ref) - 6} y={H - 22 * k} fill="#3E7D2C" textAnchor="end">referência {fmtDate(doc.settings.referenceDate)}</text>
           </g>
         </svg>

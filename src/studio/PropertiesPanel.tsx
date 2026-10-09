@@ -11,6 +11,7 @@ import { useAnalysis, useActiveScenario } from "@/store/hooks"
 import { useView } from "@/store/view"
 import { docVigRange } from "@/lib/v6"
 import { BolsaLinksSection, ConsolidationProps, CourseTurmaSection, ProjectSummary, RevisionsSection, SituationChips } from "./PropertiesV6"
+import { ActionComponentsSection, FinProps, ParcelsSection } from "./PropertiesV8"
 
 const CERTAINTIES = Object.keys(CERTAINTY_LABEL) as Certainty[]
 
@@ -21,23 +22,25 @@ const CERTAINTIES = Object.keys(CERTAINTY_LABEL) as Certainty[]
 export function PropertiesPanel() {
   const selection = useStudio((s) => s.selection)
   const selAnn = useStudio((s) => s.selectedAnnotation)
+  const selFin = useStudio((s) => s.selectedFin)
   const doc = useStudio((s) => s.doc)
   const { items } = useAnalysis()
   const sel = items.filter((i) => selection.includes(i.id))
   const ann = doc.annotations.find((a) => a.id === selAnn)
-  if (!ann && sel.length === 0) return null
+  const fin = (doc.finRecords ?? []).find((f) => f.id === selFin)
+  if (!ann && !fin && sel.length === 0) return null
   // A whole consolidated row selected → the programme view.
   const consKey = sel.length > 1 && sel[0].consolidation && sel.every((x) => x.consolidation === sel[0].consolidation) && items.filter((i) => i.consolidation === sel[0].consolidation).length === sel.length ? sel[0].consolidation : null
-  const close = () => useStudio.setState({ selection: [], selectedAnnotation: null })
+  const close = () => useStudio.setState({ selection: [], selectedAnnotation: null, selectedFin: null })
   return (
     <aside aria-label="Propriedades" className="scroll-thin absolute inset-y-0 right-0 z-30 flex w-[312px] flex-col overflow-y-auto border-l bg-white shadow-[-12px_0_32px_-24px_rgba(15,40,70,0.35)] lg:static lg:shadow-none">
       <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-white px-4 py-2.5">
-        <span className="text-[12px] font-semibold text-muted-foreground">{ann ? "Anotação" : consKey ? "Programa" : sel.length > 1 ? `${sel.length} selecionados` : "Propriedades"}</span>
+        <span className="text-[12px] font-semibold text-muted-foreground">{fin ? "Registro financeiro" : ann ? "Anotação" : consKey ? "Programa" : sel.length > 1 ? `${sel.length} selecionados` : "Propriedades"}</span>
         <button aria-label="Fechar painel" title="Fechar (Esc)" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={close}>
           <X className="size-4" />
         </button>
       </div>
-      {ann ? <AnnotationProps a={ann} items={items} /> : consKey ? <ConsolidationProps consKey={consKey} /> : sel.length === 1 ? <ItemProps key={sel[0].id} it={sel[0]} /> : <Multi items={sel} />}
+      {fin ? <FinProps key={fin.id} f={fin} /> : ann ? <AnnotationProps a={ann} items={items} /> : consKey ? <ConsolidationProps consKey={consKey} /> : sel.length === 1 ? <ItemProps key={sel[0].id} it={sel[0]} /> : <Multi items={sel} />}
     </aside>
   )
 }
@@ -189,7 +192,7 @@ function ItemProps({ it }: { it: EffItem }) {
           </Field>
         </div>
         <div className="flex gap-1">
-          <Button size="sm" variant="ghost" title="Centralizar na timeline" onClick={() => useView.getState().centerOn(it.range.start, it.range.end)}><Crosshair className="size-3.5" /> Centralizar</Button>
+          <Button size="sm" variant="ghost" title="Centralizar na timeline" onClick={() => useView.getState().centerOn(it.range.start, it.range.end)}><Crosshair className="size-3.5" /> Centralizar na atividade</Button>
           <Button size="sm" variant="ghost" title="Duplicar (Ctrl+D)" aria-label="Duplicar" onClick={() => st.duplicateItems([it.id])}><Copy className="size-3.5" /></Button>
           <Button size="sm" variant="ghost" title={it.locked ? "Desbloquear" : "Bloquear edição"} aria-label={it.locked ? "Desbloquear" : "Bloquear"} onClick={() => st.commit(it.locked ? "desbloquear" : "bloquear", (d) => ({ ...d, items: d.items.map((x) => (x.id === it.id ? { ...x, locked: !it.locked } : x)) }))}>
             {it.locked ? <Unlock className="size-3.5" /> : <Lock className="size-3.5" />}
@@ -202,7 +205,9 @@ function ItemProps({ it }: { it: EffItem }) {
 
       {it.kind === "projeto" && <ProjectSummary it={it} />}
       {it.kind === "curso" && <CourseTurmaSection it={it} />}
+      {(["curso", "atividade", "operacao", "contrato", "turma"].includes(it.kind) || (it.kind === "bolsa" && !it.parentId)) && <ActionComponentsSection it={it} />}
       {it.kind === "bolsa" && <BolsaLinksSection it={it} />}
+      {it.kind === "bolsa" && <ParcelsSection it={it} />}
 
       <Section title="Período">
         <DateRangeFields it={it} />

@@ -1,5 +1,6 @@
-import { GROUPS, groupOf, isDetail, type Consolidation, type GroupId } from "@/data/types"
+import { GROUPS, groupOf, isDetail, type Consolidation, type FinRecord, type GroupId } from "@/data/types"
 import type { EffItem } from "./analysis"
+import type { ActionInfo } from "./finance"
 
 export const LABEL_W = 264
 export const GROUP_H = 34
@@ -9,14 +10,45 @@ export const MORE_H = 28
 export const PORTFOLIO_H = 64
 /** Sub-lane height inside a consolidated row when segments overlap. */
 export const SUB_H = 15
+/** V8 hierarchy */
+export const PROJECT_H = 46
+export const COMP_H = 30
+export const NOTE_H = 26
 
-type ItemRow = { type: "item"; group: GroupId; top: number; h: number; item: EffItem; index: number; virtual?: "hyp"; portfolio?: boolean }
+/** Hierarchy fields (V8): depth 0 = project, 1 = action, 2 = component. */
+interface HierFields {
+  depth?: number
+  /** Toggle key: an item id or `cons:<key>`. */
+  toggle?: string
+  expanded?: boolean
+  info?: ActionInfo
+  /** Component rows are thinner. */
+  thin?: boolean
+  /** Shown in a visible project only because that project takes part in it. */
+  via?: string
+}
+
+export type ItemRow = { type: "item"; group: GroupId; top: number; h: number; item: EffItem; index: number; virtual?: "hyp"; portfolio?: boolean } & HierFields
+
+export type CompKind = "aquisicao" | "nf" | "materiais" | "servicos" | "bolsas" | "sem_vinculo"
+
+export const COMP_LABEL: Record<CompKind, string> = {
+  aquisicao: "Aquisição e pagamento",
+  nf: "Notas fiscais e comprovação",
+  materiais: "Materiais e recursos",
+  servicos: "Serviços complementares",
+  bolsas: "Bolsas dos alunos",
+  sem_vinculo: "Componentes · vínculo a validar",
+}
 
 export type Row =
   | { type: "group"; group: GroupId; top: number; h: number; count: number; hiddenDetail: number; collapsed: boolean; detailed: boolean; label?: string }
   | ItemRow
-  | { type: "consolidated"; group: GroupId; top: number; h: number; key: string; name: string; subtitle?: string; members: EffItem[]; lanes: number[]; laneCount: number; index: number }
+  | ({ type: "consolidated"; group: GroupId; top: number; h: number; key: string; name: string; subtitle?: string; members: EffItem[]; lanes: number[]; laneCount: number; index: number } & HierFields)
   | { type: "more"; group: GroupId; top: number; h: number; count: number }
+  | { type: "project"; group: GroupId; top: number; h: number; projectId: string | null; item?: EffItem; collapsed: boolean; count: number; index: number }
+  | { type: "comp"; group: GroupId; top: number; h: number; comp: CompKind; actionId: string | null; action?: EffItem; fins: FinRecord[]; empty?: string; index: number; depth: number }
+  | { type: "note"; group: GroupId; top: number; h: number; text: string; tone?: "warn" | "muted"; depth: number; index: number }
 
 export interface RowLayout {
   rows: Row[]
@@ -115,8 +147,8 @@ export function computeRows(items: EffItem[], opts: RowOptions): RowLayout {
   return finish(rows, y, order)
 }
 
-function finish(rows: Row[], total: number, order: Map<GroupId, string[]>): RowLayout {
-  const itemRows = rows.filter((r): r is ItemRow => r.type === "item" && !r.virtual && !r.portfolio)
+export function finish(rows: Row[], total: number, order: Map<GroupId, string[]>, reorder = true): RowLayout {
+  const itemRows = reorder ? rows.filter((r): r is ItemRow => r.type === "item" && !r.virtual && !r.portfolio) : []
   return {
     rows,
     total,

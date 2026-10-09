@@ -10,14 +10,17 @@ import { Scene1 } from "./Scene1"
 import { Scene2 } from "./Scene2"
 import { Scene3 } from "./Scene3"
 import { Scene4 } from "./Scene4"
+import { SceneCourses } from "./SceneCourses"
 import { Logo } from "@/studio/TopBar"
 import { confirmAction } from "@/components/Confirm"
 
+/** `id` is the stable key of a scene's composition and notes; the order is the narrative. */
 const SCENES = [
-  { title: "Projetos", C: Scene1 },
-  { title: "Jornada formativa", C: Scene2 },
-  { title: "Dois tempos", C: Scene3 },
-  { title: "Continuidade", C: Scene4 },
+  { id: 0, title: "Projetos", C: Scene1 },
+  { id: 4, title: "Cursos e compromissos", C: SceneCourses },
+  { id: 1, title: "Jornada formativa", C: Scene2 },
+  { id: 2, title: "Dois tempos", C: Scene3 },
+  { id: 3, title: "Continuidade", C: Scene4 },
 ]
 
 export default function Board() {
@@ -55,7 +58,7 @@ export default function Board() {
       if (t.isContentEditable || t.closest("input,select,textarea")) return
       if (e.key === "ArrowRight" || e.key === "PageDown") go(scene + 1)
       else if (e.key === "ArrowLeft" || e.key === "PageUp") go(scene - 1)
-      else if (/^[1-4]$/.test(e.key)) go(+e.key - 1)
+      else if (/^[1-5]$/.test(e.key)) go(+e.key - 1)
       else if (e.key === "Escape") design ? setDesign(false) : setMode("studio")
       else if (e.key.toLowerCase() === "d" && !e.metaKey && !e.ctrlKey) setDesign(!design)
       else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
@@ -68,7 +71,7 @@ export default function Board() {
     return () => window.removeEventListener("keydown", onKey)
   })
 
-  const { C } = SCENES[scene]
+  const { C } = SCENES[Math.min(scene, SCENES.length - 1)]
   const isSim = scenario.kind !== "baseline"
 
   return (
@@ -92,10 +95,10 @@ export default function Board() {
         </select>
         {design && (
           <>
-            <Button size="sm" variant="ghost" onClick={() => useStudio.getState().addSceneNote({ id: uid("note"), scene, text: "Nova nota", x: 760, y: 470, arrow: false })}>
+            <Button size="sm" variant="ghost" onClick={() => useStudio.getState().addSceneNote({ id: uid("note"), scene: SCENES[scene].id, text: "Nova nota", x: 760, y: 470, arrow: false })}>
               <StickyNote className="size-3.5" /> Nota
             </Button>
-            <Button size="sm" variant="ghost" onClick={async () => (await confirmAction("Restaurar a composição original desta cena?")) && useStudio.getState().resetLayout(scene)}>
+            <Button size="sm" variant="ghost" onClick={async () => (await confirmAction("Restaurar a composição original desta cena?")) && useStudio.getState().resetLayout(SCENES[scene].id)}>
               <RotateCcw className="size-3.5" /> Composição
             </Button>
           </>
@@ -140,8 +143,8 @@ export default function Board() {
                 <span className="ml-auto font-mono text-[15px]">{scene + 1} / {SCENES.length}</span>
               </div>
               {isSim && (
-                <div className="pointer-events-none absolute top-[34px] right-[120px] flex items-center gap-3 rounded-full border-2 border-dashed border-[#173B63] bg-white px-5 py-2 text-[18px] font-semibold text-[#173B63]">
-                  <span className="rounded-full bg-[#173B63] px-2.5 py-0.5 text-[14px] font-bold tracking-wider text-white">SIMULAÇÃO</span>
+                <div className="pointer-events-none absolute top-[34px] right-[120px] flex items-center gap-3 rounded-full border-2 border-dashed border-[#6D4AC4] bg-white px-5 py-2 text-[18px] font-semibold text-[#5B3BA8]">
+                  <span className="rounded-full bg-[#6D4AC4] px-2.5 py-0.5 text-[14px] font-bold tracking-wider text-white">SIMULAÇÃO</span>
                   {scenario.name} — não representa aprovação
                 </div>
               )}

@@ -223,3 +223,36 @@ Projeto":
 
 Pendências: não há painel dedicado para cadastrar cursos de catálogo nem gerações (o modelo e o
 vínculo existem); turmas que existem apenas em um cenário não são suportadas.
+
+## V8 — Projeto → Curso → Componentes
+
+A timeline passa a ser hierárquica. Cada curso é **uma ação principal**; aquisição, pagamentos, bolsas, notas fiscais e materiais ficam em sublinhas recolhíveis da própria ação. A matriz por categorias da V6 continua disponível em *Exibição → Outras visões*.
+
+**Níveis (Exibição):** `Somente Projetos` (três faixas) · `Projetos + Cursos` (padrão: cada ação em uma linha, com etiquetas) · `Projetos + Cursos + Detalhes` (todas as ações expandidas). Em qualquer nível, a seta ao lado de uma ação abre ou fecha só aquela ação; a seta do projeto recolhe a seção inteira.
+
+**Modelo (`src/data/types.ts`, `FinRecord`):** registros financeiros e documentais são entidades próprias, ligadas à ação por `actionId` (e ao contrato por `parentId`). Tipos: aquisição, pagamento, NF, parcela de bolsa, material, serviço. Situação financeira da aquisição (`acqStatus`) e comprovação (`proof`) são campos separados; as 7 etapas da compra têm data e evidência próprias e nenhuma marca outra. Valor ausente é `null` (“não informado”), nunca zero. Um registro aparece em várias visões, mas os totais são somados por id (`finTotals`).
+
+**Etiquetas:** “Pago” só quando uma aquisição está registrada como integralmente paga; sem registro de aquisição a etiqueta é “Pagamento a validar”. “Compra a formalizar” quando a negociação foi registrada e o contrato não.
+
+**Filtros (só visualização):**
+- P1/P2/P3: ocultar um projeto esconde as ações exclusivas dele. Uma ação de outro projeto com participação explícita de um projeto visível (`Item.funding` ou `FinRecord.fundingProjectId`) continua visível, marcada “participação do P2 · resp. P1”, mostrando só os componentes financiados pelo projeto visível. Nenhuma despesa é transferida.
+- Menu ▾ dos projetos: mostrar somente um, ajustar período ao projeto, **ocultar atividades concluídas e aquisições pagas** — só some o que terminou, tem aquisição paga e nenhum compromisso aberto (parcela, NF/pagamento previsto, comprovação pendente); o que tem pendência fica visível com aviso.
+- Turma (com gerações, quando cadastradas) e Situação financeira (aquisição paga · a adquirir · compromissos futuros · informações a validar).
+
+**Escala:** presets Histórico 2023–2025, Ciclo atual 2025–2028, Panorama 2023–2030 e personalizado. Barras que começam antes ou terminam depois da janela ganham uma seta discreta na borda (◂ ▸). Pagamentos e NFs são marcos nas datas reais; quando só se sabe uma janela (“dentro da vigência”), aparece um colchete tracejado com “data a definir”.
+
+**Cores:** azul = execução educacional; verde = evento financeiro comprovado; laranja = período após a vigência (sobreposição moderada, não um veredito financeiro); roxo = cenário hipotético; cinza = previsto/não confirmado (sempre com rótulo); vermelho fica para alertas fundamentados.
+
+**Diretoria:** nova cena 2 “Cursos e compromissos”. Começa com cada curso recolhido; ao escolher um, mostra a síntese gerada dos registros e revela, por etapas, aquisição, bolsas, NF, materiais e compromissos após a vigência — sem editar dados. A cena “Continuidade” lista a situação de aquisição de cada curso.
+
+**Dados acrescentados nesta versão (todos “a validar”, fonte registrada):**
+- Técnico 1: aquisição “integralmente paga” com comprovação pendente (fonte: briefing V8 e quadro de referência). Fornecedor, datas, valores e documento não informados — o painel avisa “pago sem registro de pagamento”. Início de referência ajustado de fev/2026 para 18/02/2026, com histórico no registro.
+- Técnico 2: fornecedor Senai, etapas 1 (planejamento) e 2 (negociação concluída em 02/10/2026) registradas; contrato, NF, pagamento e comprovação não registrados. Pagamento único e NF única previstos, desenhados como janela de 02/10/2026 a 30/06/2027 (“data a definir”).
+- Nomes curtos das ações do P1 (“Curso Técnico Piloto” etc.). As datas do P1 continuam a validar.
+- Não foram criados registros de Jornada Tecnológica e Robótica no Projeto 2, materiais, NFs emitidas nem parcelas de bolsa: não havia dados.
+
+**Migração:** documentos salvos (modelo 6) são copiados para `ska-temporal-studio:v1:backup-v6` antes de migrar; IDs são preservados; a migração é idempotente e não reescreve datas já editadas.
+
+**Testes:** `npm test` (40 testes: cálculo de datas, hierarquia, filtros, vínculos múltiplos, contagem única, migração) e `node scripts/e2e.mjs <url>` (46 verificações no navegador, incluindo os 13 cenários de aceitação da V8).
+
+**Pendências conhecidas:** a barra lateral “Elementos” ainda lista por categoria; não há importação de planilhas de NF/pagamentos; parcelas de bolsa são cadastradas uma a uma.

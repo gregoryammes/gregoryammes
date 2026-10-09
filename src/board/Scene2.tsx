@@ -5,7 +5,7 @@ import { Movable, SceneNotes, SceneTitle } from "./Stage"
 export function Scene2() {
   return (
     <div className="absolute inset-0">
-      <SceneTitle scene={1} eyebrow="Jornada formativa" title="A formação ultrapassa os limites de um único projeto" size={58} />
+      <SceneTitle scene={1} n={3} eyebrow="Jornada formativa" title="A formação ultrapassa os limites de um único projeto" size={58} />
       <div className="absolute top-[232px] left-[120px] h-[720px] w-[1680px]">
         <JourneyView size="stage" />
       </div>

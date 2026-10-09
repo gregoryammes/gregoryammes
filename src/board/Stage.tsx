@@ -167,12 +167,12 @@ export function SceneNotes({ scene, resolveX }: { scene: number; resolveX?: (n: 
   )
 }
 
-export function SceneTitle({ scene, eyebrow, title, sub, size = 66 }: { scene: number; eyebrow: string; title: string; sub?: string; size?: number }) {
+export function SceneTitle({ scene, n, eyebrow, title, sub, size = 66 }: { scene: number; n?: number; eyebrow: string; title: string; sub?: string; size?: number }) {
   return (
     <>
       <Movable k={`s${scene}:eyebrow`} x={120} y={84} w={1200}>
         <div className="flex items-center gap-3 text-[19px] font-bold tracking-[0.2em] text-[#087CB8] uppercase">
-          <span className="font-mono text-[18px] text-[#64748B]">0{scene + 1}</span>
+          <span className="font-mono text-[18px] text-[#64748B]">0{n ?? scene + 1}</span>
           {eyebrow}
         </div>
       </Movable>

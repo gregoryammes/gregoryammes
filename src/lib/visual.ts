@@ -28,6 +28,14 @@ export const C = {
   after: "#EE7F12",
   afterSoft: "#FFF5EA",
   afterText: "#9A4A08",
+  /** V8: hypothetical scenario (simulation) — purple, always labelled. */
+  scenario: "#6D4AC4",
+  scenarioSoft: "#F1ECFB",
+  /** Financial event proven as realized. */
+  paid: "#23845D",
+  paidSoft: "#E7F4EE",
+  /** Not realized / not confirmed / planning. */
+  muted: "#94A3B8",
 }
 
 /** Kept for the presentation scenes. */
@@ -101,7 +109,7 @@ export function barStyleFor(status: StatusKey, color: string): BarStyle {
     case "planejado":
       return { fill: color, fillOpacity: 0.16, stroke: color, strokeWidth: 1.5, text: C.text }
     case "cenario":
-      return { fill: "#FFFFFF", fillOpacity: 1, stroke: color, strokeWidth: 1.6, dash: "6 4", text: C.text }
+      return { fill: "#FFFFFF", fillOpacity: 1, stroke: C.scenario, strokeWidth: 1.6, dash: "6 4", text: C.text }
     case "nao_confirmado":
       return { fill: "#E4E9F0", fillOpacity: 1, stroke: "#B8C3D1", strokeWidth: 1, dash: "2 3", text: C.text2 }
   }

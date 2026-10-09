@@ -90,7 +90,7 @@ export function TopBar() {
           <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wider", isBase ? "bg-muted text-muted-foreground" : "bg-navy text-white")}>
             {isBase ? "BASE" : "CENÁRIO"}
           </span>
-          <select aria-label="Cenário ativo" className="w-[150px] shrink-0 bg-transparent text-[12.5px] font-semibold text-foreground outline-none 2xl:w-[230px]" value={st.scenarioId} onChange={(e) => st.setScenario(e.target.value)}>
+          <select aria-label="Cenário ativo" className="w-[150px] shrink-0 bg-transparent text-[12.5px] font-semibold text-foreground outline-none min-[1800px]:w-[230px]" value={st.scenarioId} onChange={(e) => st.setScenario(e.target.value)}>
             {doc.scenarios.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </label>
@@ -100,7 +100,7 @@ export function TopBar() {
       <div className="mx-auto hidden items-center gap-1.5 lg:flex">
         <div className="relative">
           <Button size="sm" variant="outline" title={`Intervalo temporal exibido: ${rangeLabel}`} onClick={() => setMenu(menu === "range" ? null : "range")}>
-            <CalendarRange className="size-3.5 text-muted-foreground" /> <span className="2xl:hidden">{view.range ? `${view.range.from}–${view.range.to}` : "Livre"}</span><span className="hidden max-w-[260px] truncate 2xl:inline">{rangeLabel}</span> <ChevronDown className="size-3" />
+            <CalendarRange className="size-3.5 text-muted-foreground" /> <span className="min-[1800px]:hidden">{view.range ? `${view.range.from}–${view.range.to}` : "Livre"}</span><span className="hidden max-w-[220px] truncate min-[1800px]:inline">{rangeLabel}</span> <ChevronDown className="size-3" />
           </Button>
           {menu === "range" && (
             <Menu onClose={() => setMenu(null)}>
@@ -122,7 +122,7 @@ export function TopBar() {
         </div>
         <div className="flex items-center rounded-md border">
           <Button size="icon" variant="ghost" className="!size-7 rounded-r-none" title="Reduzir zoom" onClick={() => { view.zoomAt(1 / 1.35); view.set({ range: null }) }}><ZoomOut className="size-3.5" /></Button>
-          <Button size="sm" variant="ghost" className="rounded-none border-x" title="Ajustar ao conteúdo cadastrado" onClick={fitAll}><Maximize2 className="size-3.5" /> <span className="hidden 2xl:inline">Ajustar</span></Button>
+          <Button size="sm" variant="ghost" className="rounded-none border-x" title="Ajustar ao conteúdo cadastrado" onClick={fitAll}><Maximize2 className="size-3.5" /> <span className="hidden min-[1800px]:inline">Ajustar</span></Button>
           <Button size="icon" variant="ghost" className="!size-7 rounded-l-none" title="Ampliar zoom" onClick={() => { view.zoomAt(1.35); view.set({ range: null }) }}><ZoomIn className="size-3.5" /></Button>
         </div>
         <div className="relative">

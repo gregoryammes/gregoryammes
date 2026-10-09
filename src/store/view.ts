@@ -1,15 +1,17 @@
 import { create } from "zustand"
 import { dayOf } from "@/lib/dates"
+import type { FinFilter } from "@/lib/finance"
 
 export type Tool = "select" | "hand" | "note" | "connect"
 export type StudioView = "timeline" | "journey" | "twotimes"
-export type DisplayMode = "projects" | "all" | "filtered"
+/** projects = nível 1 · courses = nível 2 · details = nível 3 · all/filtered = matriz por categorias (V6). */
+export type DisplayMode = "projects" | "courses" | "details" | "all" | "filtered"
 export type JourneyMode = "conceitual" | "turma" | "matriz"
 
 export const RANGE_PRESETS = [
-  { id: "vigencia", label: "2025–2028 · Vigência e continuidade", from: 2025, to: 2028 },
-  { id: "historico", label: "2023–2027 · Histórico dos Projetos 1 e 2", from: 2023, to: 2027 },
-  { id: "panorama", label: "2023–2030 · Panorama estratégico", from: 2023, to: 2030 },
+  { id: "historico", label: "Histórico · 2023–2025", from: 2023, to: 2025 },
+  { id: "ciclo", label: "Ciclo atual · 2025–2028", from: 2025, to: 2028 },
+  { id: "panorama", label: "Panorama · 2023–2030", from: 2023, to: 2030 },
 ] as const
 
 export const ZOOM_PRESETS = {
@@ -41,6 +43,14 @@ interface ViewState {
   hiddenProjects: string[]
   turmaFilter: string[]
   turmaFilterMode: "dim" | "hide"
+  /** V8 hierarchy: actions expanded at level 2 / collapsed at level 3, collapsed project sections. */
+  expanded: string[]
+  collapsedActions: string[]
+  collapsedProjects: string[]
+  /** Projects whose ended-and-paid actions are hidden (open commitments stay visible). */
+  hideSettled: string[]
+  finFilter: FinFilter
+  toggleAction: (key: string) => void
   journeyMode: JourneyMode
   journeyTurma: string | null
   detailAll: boolean
@@ -60,7 +70,7 @@ interface ViewState {
 const clampPpd = (v: number, width = 1000) => Math.min(MAX_PPD, Math.max(MIN_PPD, width / (12 * 365), v))
 
 const VIEW_KEY = "ska-temporal-studio:view"
-const PERSISTED = ["displayMode", "hiddenProjects", "turmaFilter", "turmaFilterMode", "journeyMode", "journeyTurma", "detailAll", "sidebarOpen"] as const
+const PERSISTED = ["expanded", "collapsedActions", "collapsedProjects", "hideSettled", "finFilter", "displayMode", "hiddenProjects", "turmaFilter", "turmaFilterMode", "journeyMode", "journeyTurma", "detailAll", "sidebarOpen"] as const
 function loadView(): Partial<ViewState> {
   try {
     const raw = typeof window !== "undefined" ? window.localStorage.getItem(VIEW_KEY) : null
@@ -82,7 +92,17 @@ export const useView = create<ViewState>((set, get) => ({
   showAnnotations: true,
   showTrace: false,
   studioView: "timeline",
-  displayMode: "all",
+  displayMode: "courses",
+  expanded: [],
+  collapsedActions: [],
+  collapsedProjects: [],
+  hideSettled: [],
+  finFilter: "all",
+  toggleAction: (key) => {
+    const v = get()
+    if (v.displayMode === "details") set({ collapsedActions: v.collapsedActions.includes(key) ? v.collapsedActions.filter((k) => k !== key) : [...v.collapsedActions, key] })
+    else set({ expanded: v.expanded.includes(key) ? v.expanded.filter((k) => k !== key) : [...v.expanded, key], ...(v.displayMode === "projects" ? { displayMode: "courses" as const } : {}) })
+  },
   hiddenProjects: [],
   turmaFilter: [],
   turmaFilterMode: "dim",
@@ -132,3 +152,6 @@ if (typeof window !== "undefined") {
     }
   })
 }
+
+// Test hook (dev builds only), like `window.__studio`.
+if (import.meta.env.DEV && typeof window !== "undefined") (window as unknown as { __view: typeof useView }).__view = useView

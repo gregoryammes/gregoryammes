@@ -163,6 +163,135 @@ export interface Item {
   finSituation?: FinSituation
   /** Documented revisions of this record (date changes backed by evidence). */
   revisions?: Revision[]
+  /** V8 — explicit participation of other projects in this action (never inferred). */
+  funding?: Funding[]
+}
+
+/** A project that funds part of an action. The action keeps its responsible `projectId`. */
+export interface Funding {
+  projectId: string
+  /** Parcela ou componente financiado, as written in the source (free text). */
+  share?: string
+  instrument?: string
+  start?: ISODate | null
+  end?: ISODate | null
+  note?: string
+}
+
+/* ── V8 — financial and documentary components of an action ─────────────────── */
+
+export type FinKind = "aquisicao" | "pagamento" | "nf" | "parcela" | "material" | "servico"
+
+export const FIN_KIND_LABEL: Record<FinKind, string> = {
+  aquisicao: "Aquisição / contratação",
+  pagamento: "Pagamento",
+  nf: "Nota fiscal",
+  parcela: "Parcela de bolsa",
+  material: "Material / recurso",
+  servico: "Serviço complementar",
+}
+
+/** Financial state of an acquisition — distinct from its documentary proof. */
+export type AcqStatus = "planejado" | "em_negociacao" | "contratado" | "parcialmente_pago" | "integralmente_pago"
+
+export const ACQ_STATUS_LABEL: Record<AcqStatus, string> = {
+  planejado: "Planejado",
+  em_negociacao: "Em negociação",
+  contratado: "Contratado",
+  parcialmente_pago: "Parcialmente pago",
+  integralmente_pago: "Integralmente pago",
+}
+
+export type ProofStatus = "pendente" | "comprovado"
+
+export const PROOF_LABEL: Record<ProofStatus, string> = { pendente: "Comprovação pendente", comprovado: "Comprovado" }
+
+/** Bolsa installments: due depends on attendance and performance — never presumed. */
+export type ParcelStatus = "prevista" | "devida" | "paga" | "pendente"
+
+export const PARCEL_LABEL: Record<ParcelStatus, string> = {
+  prevista: "Prevista",
+  devida: "Devida conforme critérios",
+  paga: "Paga",
+  pendente: "Pendente",
+}
+
+export type AcqStepId = "planejamento" | "negociacao" | "proposta" | "contrato" | "nf" | "pagamento" | "comprovacao"
+
+export const ACQ_STEPS: { id: AcqStepId; label: string }[] = [
+  { id: "planejamento", label: "Planejamento" },
+  { id: "negociacao", label: "Negociação" },
+  { id: "proposta", label: "Proposta recebida" },
+  { id: "contrato", label: "Contrato formalizado" },
+  { id: "nf", label: "Nota fiscal emitida" },
+  { id: "pagamento", label: "Pagamento realizado" },
+  { id: "comprovacao", label: "Comprovação registrada" },
+]
+
+/** Each step carries its own date and evidence; completing one never completes another. */
+export interface AcqStep {
+  id: AcqStepId
+  done: boolean
+  date?: ISODate | null
+  evidence?: string
+}
+
+export type MaterialType = "pedagogico" | "kit" | "equipamento" | "licenca" | "outro"
+
+export const MATERIAL_LABEL: Record<MaterialType, string> = {
+  pedagogico: "Material pedagógico",
+  kit: "Kit",
+  equipamento: "Equipamento",
+  licenca: "Licença",
+  outro: "Outro recurso",
+}
+
+/**
+ * One financial or documentary record. Shown under its action (and in any filter), but always a
+ * single record: totals are computed by id, never per view.
+ */
+export interface FinRecord {
+  id: string
+  kind: FinKind
+  name: string
+  /** Action (curso, atividade, bolsa…) it belongs to. `null` = vínculo a validar. */
+  actionId: string | null
+  /** Payments and NFs may point to their acquisition. */
+  parentId?: string | null
+  /** Event date (start = end) or period. `null` = não informada. */
+  start: ISODate | null
+  end: ISODate | null
+  /** Only a window is known (e.g. "within the vigência"): drawn as a dashed interval, never a point. */
+  dateUndetermined?: boolean
+  /** True only when a record of the event exists (NF issued, payment made, material received). */
+  realized: boolean
+  /** `null` = não informado, never zero. */
+  value: number | null
+  fundingProjectId: string | null
+  instrument?: string
+  proof: ProofStatus
+  /** "a_validar" when the link to the action is not unequivocal. */
+  linkStatus: "confirmado" | "a_validar"
+  supplier?: string
+  docNumber?: string
+  /** Competência "YYYY-MM". */
+  competencia?: string
+  contractRef?: string
+  evidence?: string
+  sourceIds: string[]
+  notes?: string
+  /** Shown only in this scenario (a forecast that exists only in the simulation). */
+  scenarioId?: string | null
+  // aquisição
+  acqStatus?: AcqStatus
+  contractDate?: ISODate | null
+  contractValue?: number | null
+  steps?: AcqStep[]
+  // parcela de bolsa
+  parcelStatus?: ParcelStatus
+  beneficiaries?: number | null
+  // material
+  materialType?: MaterialType
 }
 
 export type FinSituation =
@@ -349,6 +478,8 @@ export interface StudioDoc {
   turmas?: Turma[]
   generations?: Generation[]
   consolidations?: Consolidation[]
+  /** V8 — financial / documentary components, linked to actions. */
+  finRecords?: FinRecord[]
   presentation: {
     layout: Record<string, BoxLayout>
     notes: SceneNote[]

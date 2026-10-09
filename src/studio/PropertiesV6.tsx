@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Compass, Plus, Trash2 } from "lucide-react"
+import { Compass, Maximize2, Plus, Trash2 } from "lucide-react"
 import { Button, Chip } from "@/components/ui/button"
 import { confirmAction } from "@/components/Confirm"
 import { fmtDate, fmtMonthsSpan, isValidISO } from "@/lib/dates"
@@ -35,7 +35,7 @@ export function ProjectSummary({ it }: { it: EffItem }) {
   const explore = () => {
     const v = useView.getState()
     v.set({
-      displayMode: "all",
+      displayMode: v.displayMode === "all" || v.displayMode === "filtered" ? "all" : "courses",
       studioView: "timeline",
       hiddenProjects: doc.projects.filter((p) => p.id !== it.projectId).map((p) => p.id),
     })
@@ -60,6 +60,14 @@ export function ProjectSummary({ it }: { it: EffItem }) {
       </div>
       <Button variant="primary" className="w-full justify-center" onClick={explore}>
         <Compass className="size-4" /> Explorar este projeto
+      </Button>
+      <Button variant="outline" className="w-full justify-center" onClick={() => {
+        const end = Math.max(it.range.end, ...mine.map((m) => m.range.end))
+        const start = Math.min(it.range.start, ...mine.map((m) => m.range.start))
+        useView.getState().fit(start, end)
+        useView.getState().set({ range: null })
+      }}>
+        <Maximize2 className="size-4" /> Ajustar período ao projeto
       </Button>
     </V6Section>
   )

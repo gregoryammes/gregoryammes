@@ -6,6 +6,7 @@ import { calendarMonthsTouched, dayOf, fmtDate, fmtMonthsSpan, fromDay, partAfte
 import { summarizeScenario } from "@/lib/analysis"
 import { C } from "@/lib/visual"
 import { docVigRange, offeringLabel, shortNameOf } from "@/lib/v6"
+import { acqOf, acqTag, finRecordsIn } from "@/lib/finance"
 import { FIN_LABEL, type Decision } from "@/data/types"
 import { useStudio } from "@/store/store"
 import { useAnalysis } from "@/store/hooks"
@@ -46,13 +47,16 @@ export function Scene4() {
     (i) => !i.hidden && !i.consolidation && (i.kind === "curso" || i.kind === "bolsa") && !!after(i.range) && ["pendente", "nao_identificada", "pagamentos_condicionados"].includes(i.finSituation ?? "pendente"),
   )
   const lastCourseEnd = continuing.length ? Math.max(...continuing.map((c) => c.range.end)) : null
+  // Acquisition situation of each course, as registered (V8).
+  const fins = finRecordsIn(doc, scenarioId)
+  const acquisitions = items.filter((i) => !i.hidden && i.kind === "curso").map((c) => ({ c, a: acqOf(fins, c.id) }))
 
   const cycleDecision = (d: Decision) =>
     useStudio.getState().commit("status da decisão", (x) => ({ ...x, decisions: x.decisions.map((y) => (y.id === d.id ? { ...y, status: NEXT[d.status] } : y)) }))
 
   return (
     <div className="absolute inset-0">
-      <SceneTitle scene={3} eyebrow="Continuidade e decisões" title="Como garantir a continuidade da jornada?" size={60} />
+      <SceneTitle scene={3} n={5} eyebrow="Continuidade e decisões" title="Como garantir a continuidade da jornada?" size={60} />
 
       <Movable k="s3:continua" x={120} y={226} w={520}>
         <div className="space-y-6">
@@ -97,6 +101,9 @@ export function Scene4() {
           <div>
             <H tone="after">Questões financeiras a validar</H>
             <ul className="mt-2 space-y-1.5 text-[17px] leading-snug text-[#18324A]">
+              {acquisitions.map(({ c, a }) => (
+                <li key={`acq-${c.id}`}><b>{shortNameOf(c)}</b>: <span className="text-[#64748B]">{acqTag(a).label === "Pago" ? "aquisição registrada como paga" : acqTag(a).label.toLowerCase()}{a?.proof === "pendente" ? " · comprovação pendente" : ""}</span></li>
+              ))}
               {finQuestions.map((i) => (
                 <li key={i.id}><b>{shortNameOf(i)}</b>: <span className="text-[#64748B]">{FIN_LABEL[i.finSituation ?? "pendente"]}</span></li>
               ))}

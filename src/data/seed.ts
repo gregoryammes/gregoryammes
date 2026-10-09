@@ -1,5 +1,6 @@
 import type { Item, StudioDoc } from "./types"
 import { applyV6 } from "./v6"
+import { applyV8 } from "./v8"
 
 /**
  * Seed data. Everything here comes from the briefing text ("Prompt Master V3"); no documents were
@@ -48,7 +49,7 @@ const p1Action = (id: string, name: string, lane: number, layer: Item["layer"] =
   })
 
 export function createSeed(): StudioDoc {
-  return applyV6(createSeedV5())
+  return applyV8(applyV6(createSeedV5()))
 }
 
 function createSeedV5(): StudioDoc {
