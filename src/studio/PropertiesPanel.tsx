@@ -3,8 +3,8 @@ import { Crosshair, Copy, Lock, RotateCcw, Trash2, Unlock, X } from "lucide-reac
 import { Button, Chip } from "@/components/ui/button"
 import { calendarMonthsTouched, fmtDate, fromDay, fmtMonthsSpan, isValidISO, lengthDays, partAfter, rangeOf, toDay } from "@/lib/dates"
 import type { EffItem } from "@/lib/analysis"
-import { brl, itemColor, statusOf } from "@/lib/visual"
-import { CERTAINTY_LABEL, GROUPS, KIND_LABEL, groupOf, isDetail, layerFor, type Annotation, type Certainty, type GroupId, type Item, type ItemKind } from "@/data/types"
+import { brl, statusOf } from "@/lib/visual"
+import { CERTAINTY_LABEL, GROUPS, KIND_LABEL, MODALITIES, groupOf, isDetail, layerFor, modalityOf, type Annotation, type Certainty, type GroupId, type Item, type ItemKind, type ModalityId } from "@/data/types"
 import { useStudio } from "@/store/store"
 import { confirmAction } from "@/components/Confirm"
 import { useAnalysis, useActiveScenario } from "@/store/hooks"
@@ -12,6 +12,8 @@ import { useView } from "@/store/view"
 import { docVigRange } from "@/lib/v6"
 import { BolsaLinksSection, ConsolidationProps, CourseTurmaSection, ProjectSummary, RevisionsSection, SituationChips } from "./PropertiesV6"
 import { ActionComponentsSection, FinProps, ParcelsSection } from "./PropertiesV8"
+import { DesignSection } from "./DesignSection"
+import type { PanelTab } from "@/store/view"
 
 const CERTAINTIES = Object.keys(CERTAINTY_LABEL) as Certainty[]
 
@@ -166,12 +168,27 @@ function ItemProps({ it }: { it: EffItem }) {
   const after = docVig && !it.dateUndetermined && !["vigencia", "projeto", "planejamento"].includes(it.kind) ? partAfter(it.range, docVig) : null
   const afterHyp = after && vig?.baseRange ? partAfter(it.range, vig.range) : null
   const showFinance = !!it.finance || FINANCE_KINDS.includes(it.kind)
+  const tab = useView((s) => s.panelTab)
+  const timed = !["projeto", "vigencia", "planejamento", "marco"].includes(it.kind)
 
   return (
     <>
+      <div role="tablist" aria-label="Seções de propriedades" className="sticky top-[45px] z-10 flex gap-1 border-b bg-white px-3 py-1.5">
+        {(["conteudo", "design", "dados"] as PanelTab[]).map((t) => (
+          <button key={t} role="tab" aria-selected={tab === t} onClick={() => useView.getState().set({ panelTab: t })}
+            className={`rounded-md px-2.5 py-1 text-[12px] font-semibold ${tab === t ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+            {t === "conteudo" ? "Conteúdo" : t === "design" ? "Design" : "Dados"}
+          </button>
+        ))}
+      </div>
+      {tab === "design" && <DesignSection it={it} />}
+      {tab === "conteudo" && (<>
       {/* Identificação */}
       <Section title="Identificação">
         <TextField value={it.name} onCommit={(v) => patch({ name: v }, "renomear")} />
+        <Field label="Rótulo curto (na barra)" hint="Duplo clique no bloco também edita.">
+          <TextField value={it.shortName ?? ""} placeholder={it.name} onCommit={(v) => patch({ shortName: v.trim() || undefined }, "rótulo")} />
+        </Field>
         <div className="flex flex-wrap items-center gap-1.5">
           <Chip className="text-muted-foreground">{KIND_LABEL[it.kind]}</Chip>
           <Chip className={it.certainty === "hipotese" ? "border-navy/40 text-navy" : "text-foreground"}>{status.label}</Chip>
@@ -191,6 +208,13 @@ function ItemProps({ it }: { it: EffItem }) {
             </select>
           </Field>
         </div>
+        {timed && (
+          <Field label="Modalidade">
+            <select aria-label="Modalidade" className="field" value={modalityOf(it)} onChange={(e) => patch({ modality: e.target.value as ModalityId, modLane: undefined }, "modalidade")}>
+              {MODALITIES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+          </Field>
+        )}
         <div className="flex gap-1">
           <Button size="sm" variant="ghost" title="Centralizar na timeline" onClick={() => useView.getState().centerOn(it.range.start, it.range.end)}><Crosshair className="size-3.5" /> Centralizar na atividade</Button>
           <Button size="sm" variant="ghost" title="Duplicar (Ctrl+D)" aria-label="Duplicar" onClick={() => st.duplicateItems([it.id])}><Copy className="size-3.5" /></Button>
@@ -205,9 +229,6 @@ function ItemProps({ it }: { it: EffItem }) {
 
       {it.kind === "projeto" && <ProjectSummary it={it} />}
       {it.kind === "curso" && <CourseTurmaSection it={it} />}
-      {(["curso", "atividade", "operacao", "contrato", "turma"].includes(it.kind) || (it.kind === "bolsa" && !it.parentId)) && <ActionComponentsSection it={it} />}
-      {it.kind === "bolsa" && <BolsaLinksSection it={it} />}
-      {it.kind === "bolsa" && <ParcelsSection it={it} />}
 
       <Section title="Período">
         <DateRangeFields it={it} />
@@ -261,12 +282,6 @@ function ItemProps({ it }: { it: EffItem }) {
               {GROUPS.map((g) => <option key={g.id} value={g.id}>{g.code} · {g.label}</option>)}
             </select>
           </Field>
-          <Field label="Cor">
-            <div className="flex items-center gap-2">
-              <input type="color" className="h-8 w-10 cursor-pointer rounded border bg-white" value={itemColor(it.kind, doc.projects.find((p) => p.id === it.projectId)?.color ?? "#7C8DA6", it.color)} onFocus={() => st.begin("cor")} onBlur={() => st.end()} onChange={(e) => st.livePatchItems({ [it.id]: { color: e.target.value } })} />
-              {it.color && <button className="text-[11px] text-primary" onClick={() => patch({ color: undefined }, "cor")}>padrão</button>}
-            </div>
-          </Field>
         </div>
         <label className="flex items-center gap-2 text-[12px]"><input type="checkbox" checked={!it.hidden} onChange={() => patch({ hidden: !it.hidden }, "visibilidade")} /> Visível na timeline</label>
         <label className="flex items-center gap-2 text-[12px]"><input type="checkbox" checked={!isDetail(it)} onChange={() => patch({ detail: isDetail(it) ? false : true }, "nível de detalhe")} /> Mostrar na visão limpa</label>
@@ -286,6 +301,14 @@ function ItemProps({ it }: { it: EffItem }) {
             </select>
           </Field>
         </div>
+      </Section>
+      </>)}
+
+      {tab === "dados" && (<>
+      {(["curso", "atividade", "operacao", "contrato", "turma"].includes(it.kind) || (it.kind === "bolsa" && !it.parentId)) && <ActionComponentsSection it={it} />}
+      {it.kind === "bolsa" && <BolsaLinksSection it={it} />}
+      {it.kind === "bolsa" && <ParcelsSection it={it} />}
+      <Section title="Valores e situação do registro">
         {showFinance && (
           <>
             <div className="grid grid-cols-2 gap-2">
@@ -347,6 +370,7 @@ function ItemProps({ it }: { it: EffItem }) {
           <TextField multiline value={it.notes ?? ""} placeholder="Observações, pendências, referências…" onCommit={(v) => patch({ notes: v }, "observações")} />
         </Field>
       </Section>
+      </>)}
     </>
   )
 }

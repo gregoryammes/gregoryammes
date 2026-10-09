@@ -22,7 +22,7 @@ const TONE: Record<Tag["tone"], string> = {
   pending: "border-[#F6C99A] bg-[#FFF3E6] text-[#9A4A08]",
   plan: "text-muted-foreground",
   neutral: "text-muted-foreground",
-  scenario: "border-[#C9B8EE] bg-[#F1ECFB] text-[#5B3BA8]",
+  scenario: "border-[#B9BEF0] bg-[#EEF0FB] text-[#3730A3]",
   warn: "border-[#E3C25C] bg-[#FFF8DB] text-[#6B4E00]",
   info: "border-[#A9D2EA] bg-[#E8F3FA] text-[#0B5F8C]",
 }

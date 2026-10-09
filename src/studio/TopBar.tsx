@@ -1,7 +1,7 @@
 import { useRef, useState } from "react"
 import {
   CalendarRange, ChevronDown, Download, FileJson, Filter, GanttChart, Image as ImageIcon, Maximize2, Presentation,
-  Redo2, RotateCcw, Save, Timer, Undo2, Upload, Users, ZoomIn, ZoomOut,
+  Lightbulb, Redo2, RotateCcw, Save, Timer, Undo2, Upload, Users, ZoomIn, ZoomOut,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { GROUPS } from "@/data/types"
@@ -182,6 +182,7 @@ export function TopBar() {
             ["timeline", "Linha do tempo", GanttChart],
             ["twotimes", "Dois Tempos", Timer],
             ["journey", "Jornada", Users],
+            ["projeto3", "Projeto 3", Lightbulb],
           ] as const).map(([id, label, Icon]) => (
             <button
               key={id}
@@ -193,9 +194,6 @@ export function TopBar() {
               <Icon className="size-3.5" /> {label}
             </button>
           ))}
-          <button role="tab" aria-selected={false} className="flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold whitespace-nowrap text-muted-foreground hover:text-foreground" onClick={() => st.setMode("board")}>
-            <Presentation className="size-3.5" /> Diretoria
-          </button>
         </div>
       </div>
 

@@ -256,3 +256,30 @@ A timeline passa a ser hierárquica. Cada curso é **uma ação principal**; aqu
 **Testes:** `npm test` (40 testes: cálculo de datas, hierarquia, filtros, vínculos múltiplos, contagem única, migração) e `node scripts/e2e.mjs <url>` (46 verificações no navegador, incluindo os 13 cenários de aceitação da V8).
 
 **Pendências conhecidas:** a barra lateral “Elementos” ainda lista por categoria; não há importação de planilhas de NF/pagamentos; parcelas de bolsa são cadastradas uma a uma.
+
+## V11 — Timeline visual, edição direta e Projeto 3
+
+**Tela principal (Exibição → “Projetos e modalidades”, padrão).** Três regiões:
+1. **Projetos** — faixas do Projeto 1 (verde #19885D), Projeto 2 (azul #127BAF, com *Planejamento original* e *Vigência de referência* em linhas próprias; a hipótese de vigência ganha linha tracejada separada) e Projeto 3 (roxo #8870B5, tracejado; período lido do cenário ativo). Fundo muito claro por período de projeto; onde dois projetos se sobrepõem, o fundo alterna listras finas das duas cores em vez de misturá-las.
+2. **Modalidades** — Jornada Tecnológica, Robótica, Cursos Técnicos, Bolsas e Incentivos, Operação e Infraestrutura (e “Outras ações” só quando houver registro sem modalidade). As edições ficam lado a lado nas datas reais; sobreposições ganham uma sub-linha. Bolsas de Inglês formam um grupo próprio dentro de Bolsas. A modalidade é um campo editável (aba Conteúdo) e muda ao arrastar o bloco para outra modalidade — sem alterar datas.
+3. **Resumo contextual** — faixa recolhível com a seleção: período, situação, aquisição e o que continua após a vigência.
+
+As visões anteriores continuam em *Exibição*: Somente Projetos, Projetos + Cursos (+ Detalhes) e a matriz V6.
+
+**Régua:** ANO → SEMESTRE → MÊS em qualquer zoom (Zoom: anos, semestres, trimestres, meses, semanas; enquadramentos Histórico, Ciclo atual, Panorama e Personalizado). A posição é calculada pelo dia exato.
+
+**Edição:** clique seleciona; **duplo clique edita o rótulo curto sobre o bloco**; arrastar muda as datas mantendo a duração (vigência documental continua protegida → cenário); bordas mudam início/fim; arrastar na vertical muda modalidade/linha; **botão direito** abre editar rótulo, editar datas, expandir componentes, duplicar, ocultar, bloquear e excluir (com confirmação); desfazer/refazer; encaixe livre/dia/semana/mês.
+
+**Painel em três abas:** *Conteúdo* (nome, rótulo curto, tipo, projeto, modalidade, turma, datas, status), *Design* (fonte, tamanho, peso, cor do texto, preenchimento, contorno, arredondamento, opacidade, 5 estilos predefinidos — gravados em `item.style`, sem tocar datas, status, valores ou vínculos) e *Dados* (aquisição, valores, pagamentos, NF, materiais, bolsas, participação de projetos, fontes).
+
+**Valores sob demanda:** botão *Valores* abre colunas à direita (Contratado · Pago · Saldo) por modalidade e por curso expandido, com totais. Definições: contratado = valores contratados registrados nas aquisições; pago = pagamentos realizados registrados, cada um uma vez; saldo = contratado − pago só quando os dois existem. “—” = não informado. O hover mostra período, turma, projeto, valores, status e fonte.
+
+**Explicar vigência:** botão na barra da timeline (e na Diretoria) abre os Dois Tempos com uma única régua: *Tempo do instrumento* × *Tempo da formação*. O trecho posterior traz “Execução posterior à vigência — situação financeira a verificar”; a aquisição aparece à parte (“registrada como paga · comprovação pendente”; “integralmente paga e comprovada” só com comprovação registrada).
+
+**Projeto 3 — Planejamento Estratégico** (aba *Projeto 3*): quadro com os 4 pilares + dimensão transversal; ideias arrastáveis entre pilares e editáveis (nome, descrição, pilar, prioridade, situação, responsável, período, custo, dependências, fonte, observações). “Adicionar ao cenário do Projeto 3” só para propostas *Validadas internamente*: cria um registro **planejado** apenas no *Cenário B — Estruturação do Projeto 3*, nunca na base. Inclui encaminhamento da ata, validação interna como etapa própria (pendente), comparação Cenário A (prorrogação) × Cenário B, acompanhamento (reunião com a liderança — data e participantes a confirmar —, marcos 09/10, 23/10, 26–27/10 e 30/10 com status editável, prioridades, pendências, próximas ações e responsáveis) e **Modo reunião**. Marcos nunca são concluídos por data.
+
+**Diretoria — cinco cenas:** 1 Evolução dos Projetos · 2 Jornada Educacional (com aba “Cursos técnicos em detalhe”, a antiga cena de compromissos) · 3 Dois Tempos · 4 Decisão de Continuidade (encaminhamento, marcos, decisões, Cenário A × B sobre a base documental) · 5 Futuro do SKA Tech Hub (pilares revelados um a um, a partir do quadro do Projeto 3).
+
+**Dados acrescentados:** as 26 propostas listadas no briefing V11 (todas “Ideia”, sem datas, custos ou responsáveis), os 4 marcos da ata (Previsto), a reunião com a liderança (a confirmar), o Cenário B e a decisão pendente “Validação interna da estruturação do Projeto 3”. O Cenário de prorrogação foi renomeado para “Cenário A — Prorrogação do Projeto 2 (simulação)”. Cores dos projetos atualizadas só onde ainda eram as padrão. Migração idempotente com backup (`ska-temporal-studio:v1:backup-v8`).
+
+**Ainda não feito:** edição de rótulo e estilo para vários blocos de uma vez; arrastar ideias por teclado (há o seletor de pilar); importação de NF/pagamentos em lote; a barra lateral “Elementos” continua organizada por categoria.

@@ -10,17 +10,17 @@ import { Scene1 } from "./Scene1"
 import { Scene2 } from "./Scene2"
 import { Scene3 } from "./Scene3"
 import { Scene4 } from "./Scene4"
-import { SceneCourses } from "./SceneCourses"
+import { Scene5 } from "./Scene5"
 import { Logo } from "@/studio/TopBar"
 import { confirmAction } from "@/components/Confirm"
 
 /** `id` is the stable key of a scene's composition and notes; the order is the narrative. */
 const SCENES = [
-  { id: 0, title: "Projetos", C: Scene1 },
-  { id: 4, title: "Cursos e compromissos", C: SceneCourses },
-  { id: 1, title: "Jornada formativa", C: Scene2 },
-  { id: 2, title: "Dois tempos", C: Scene3 },
-  { id: 3, title: "Continuidade", C: Scene4 },
+  { id: 0, title: "Evolução dos Projetos", C: Scene1 },
+  { id: 1, title: "Jornada Educacional", C: Scene2 },
+  { id: 2, title: "Dois Tempos", C: Scene3 },
+  { id: 3, title: "Decisão de Continuidade", C: Scene4 },
+  { id: 5, title: "Futuro do SKA Tech Hub", C: Scene5 },
 ]
 
 export default function Board() {
@@ -143,8 +143,8 @@ export default function Board() {
                 <span className="ml-auto font-mono text-[15px]">{scene + 1} / {SCENES.length}</span>
               </div>
               {isSim && (
-                <div className="pointer-events-none absolute top-[34px] right-[120px] flex items-center gap-3 rounded-full border-2 border-dashed border-[#6D4AC4] bg-white px-5 py-2 text-[18px] font-semibold text-[#5B3BA8]">
-                  <span className="rounded-full bg-[#6D4AC4] px-2.5 py-0.5 text-[14px] font-bold tracking-wider text-white">SIMULAÇÃO</span>
+                <div className="pointer-events-none absolute top-[34px] right-[120px] flex items-center gap-3 rounded-full border-2 border-dashed border-[#4338CA] bg-white px-5 py-2 text-[18px] font-semibold text-[#3730A3]">
+                  <span className="rounded-full bg-[#4338CA] px-2.5 py-0.5 text-[14px] font-bold tracking-wider text-white">SIMULAÇÃO</span>
                   {scenario.name} — não representa aprovação
                 </div>
               )}

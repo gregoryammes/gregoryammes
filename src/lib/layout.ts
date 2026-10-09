@@ -1,4 +1,4 @@
-import { GROUPS, groupOf, isDetail, type Consolidation, type FinRecord, type GroupId } from "@/data/types"
+import { GROUPS, groupOf, isDetail, type Consolidation, type FinRecord, type GroupId, type ModalityId } from "@/data/types"
 import type { EffItem } from "./analysis"
 import type { ActionInfo } from "./finance"
 
@@ -26,6 +26,17 @@ interface HierFields {
   thin?: boolean
   /** Shown in a visible project only because that project takes part in it. */
   via?: string
+  /** V11 lane rendering: one compact tag, expand button on the bar. */
+  compact?: boolean
+}
+
+/** V11 — a row holding several records side by side, packed in sub-lanes by time. */
+export interface LaneMember {
+  item: EffItem
+  lane: number
+  info?: ActionInfo
+  toggle?: string
+  expanded?: boolean
 }
 
 export type ItemRow = { type: "item"; group: GroupId; top: number; h: number; item: EffItem; index: number; virtual?: "hyp"; portfolio?: boolean } & HierFields
@@ -47,8 +58,13 @@ export type Row =
   | ({ type: "consolidated"; group: GroupId; top: number; h: number; key: string; name: string; subtitle?: string; members: EffItem[]; lanes: number[]; laneCount: number; index: number } & HierFields)
   | { type: "more"; group: GroupId; top: number; h: number; count: number }
   | { type: "project"; group: GroupId; top: number; h: number; projectId: string | null; item?: EffItem; collapsed: boolean; count: number; index: number }
-  | { type: "comp"; group: GroupId; top: number; h: number; comp: CompKind; actionId: string | null; action?: EffItem; fins: FinRecord[]; empty?: string; index: number; depth: number }
+  | { type: "comp"; group: GroupId; top: number; h: number; comp: CompKind; actionId: string | null; action?: EffItem; fins: FinRecord[]; empty?: string; index: number; depth: number; prefix?: string }
   | { type: "note"; group: GroupId; top: number; h: number; text: string; tone?: "warn" | "muted"; depth: number; index: number }
+  | { type: "heading"; group: GroupId; top: number; h: number; text: string; index: number }
+  | {
+      type: "lane"; group: GroupId; top: number; h: number; kind: "project" | "plan" | "vig" | "modality"; label: string; sub?: string
+      projectId?: string | null; modality?: ModalityId; members: LaneMember[]; laneCount: number; collapsed?: boolean; count: number; index: number; empty?: string
+    }
 
 export interface RowLayout {
   rows: Row[]
@@ -58,7 +74,17 @@ export interface RowLayout {
   /** Rows a dragged record can be dropped among. */
   orderOf: (g: GroupId) => string[]
   /** Insertion target for a vertical drop at body-y. */
-  dropAt: (y: number) => { group: GroupId; index: number; lineY: number } | null
+  dropAt: (y: number) => Drop | null
+  /** Every drawn record row, including the records inside lane rows. */
+  itemRows?: ItemRow[]
+}
+
+/** Vertical drop: a row position (matrix) or a modality lane (V11). Never a date. */
+export interface Drop {
+  group: GroupId
+  index: number
+  lineY: number
+  modality?: ModalityId
 }
 
 export const sortRows = (a: EffItem, b: EffItem) => a.lane - b.lane || a.range.start - b.range.start || a.name.localeCompare(b.name)

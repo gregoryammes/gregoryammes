@@ -6,8 +6,10 @@ import { addMonths, calendarMonthsTouched, dayOf, fmtDate, fmtMonthsSpan, fromDa
 import { summarizeScenario, type EffItem } from "@/lib/analysis"
 import { C, itemColor, statusOf, barStyleFor } from "@/lib/visual"
 import { docVigRange, offeringLabel, shortNameOf, TEMPORAL_LABEL, temporalSituation } from "@/lib/v6"
-import { FIN_LABEL } from "@/data/types"
+import { FIN_LABEL, type FinRecord } from "@/data/types"
+import { acqOf, finRecordsIn } from "@/lib/finance"
 import { useStudio } from "@/store/store"
+import { useView } from "@/store/view"
 import { useEffectiveItems, useProjectColor } from "@/store/hooks"
 
 /**
@@ -18,10 +20,10 @@ import { useEffectiveItems, useProjectColor } from "@/store/hooks"
 
 export const TWO_TIMES_STEPS = [
   "",
-  "Tempo 1 — a vigência: o período formal de referência do instrumento.",
+  "Tempo do instrumento — a vigência: o período formal de referência.",
   "O encerramento de referência: a linha que separa os dois tempos.",
-  "Tempo 2 — a formação: o curso segue o calendário escolar.",
-  "O trecho posterior ao encerramento, em meses-calendário.",
+  "Tempo da formação — os alunos seguem em formação conforme o calendário escolar.",
+  "Execução posterior à vigência — situação financeira a verificar (não significa “sem cobertura”).",
   "As bolsas têm períodos próprios, condicionados.",
   "Situação temporal e situação financeira são perguntas diferentes.",
   "E o próximo ciclo? Os cenários do Projeto 3 — todos hipóteses.",
@@ -47,6 +49,14 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
   const wrap = useRef<HTMLDivElement>(null)
   const [W, setW] = useState(stage ? 1680 : 1100)
   const [step, setStep] = useState(0)
+  const explain = useView((s) => s.explain)
+  // "Explicar vigência" from the timeline opens this view at the first step.
+  useEffect(() => {
+    if (stage || !explain) return
+    setStep(explain)
+    useView.getState().set({ explain: 0 })
+  }, [explain, stage])
+  const fins = useMemo(() => finRecordsIn(doc, scenarioId), [doc, scenarioId])
 
   useLayoutEffect(() => {
     if (stage || !wrap.current) return
@@ -135,13 +145,13 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
         {!stage && (
           <div>
             <h2 className="font-display text-[17px] font-bold text-navy">Dois Tempos do Projeto</h2>
-            <p className="text-[11.5px] text-muted-foreground">Tempo 1 — vigência do instrumento · Tempo 2 — execução das atividades. Mesma escala, mesmos registros.</p>
+            <p className="text-[11.5px] text-muted-foreground">Tempo do instrumento (vigência) · Tempo da formação (alunos e compromissos). Uma única régua, os mesmos registros.</p>
           </div>
         )}
         <div className={cn("flex items-center gap-2", stage ? "ml-auto" : "ml-auto")}>
           {step === 0 ? (
             <Button variant="accent" className={stage ? "h-14 px-6 text-[20px] font-bold" : ""} onClick={() => setStep(1)}>
-              <Sparkles className={stage ? "size-6" : "size-4"} /> {stage ? "EXPLICAR VIGÊNCIA" : "Explicar dois tempos"}
+              <Sparkles className={stage ? "size-6" : "size-4"} /> {stage ? "EXPLICAR VIGÊNCIA" : "Explicar vigência"}
             </Button>
           ) : (
             <div className={cn("flex items-center gap-2 rounded-lg border bg-white px-2 py-1", stage && "px-3 py-2")}>
@@ -201,8 +211,8 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
 
           {/* ── Rail 1: Tempo da vigência ── */}
           <g opacity={dimRail(1)} style={{ transition: "opacity 300ms" }}>
-            <text x={LABEL - 16} y={R1 + 14 * k} fontSize={fs(11)} fontWeight={800} letterSpacing={1.2} fill={C.navy} textAnchor="end">TEMPO 1</text>
-            <text x={LABEL - 16} y={R1 + 32 * k} fontSize={fs(13)} fontWeight={700} fill={C.text} textAnchor="end">Vigência do projeto</text>
+            <text x={LABEL - 16} y={R1 + 14 * k} fontSize={fs(11)} fontWeight={800} letterSpacing={1.2} fill={C.navy} textAnchor="end">TEMPO DO INSTRUMENTO</text>
+            <text x={LABEL - 16} y={R1 + 32 * k} fontSize={fs(13)} fontWeight={700} fill={C.text} textAnchor="end">Vigência formal de referência</text>
             {plan && (
               <g>
                 <rect x={X(plan.range.start)} y={R1} width={X(plan.range.end) - X(plan.range.start)} height={12 * k} rx={2} fill={C.plan} fillOpacity={0.35} stroke={C.plan} />
@@ -239,8 +249,8 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
           </g>
 
           {/* ── Rail 2: Tempo da formação / execução ── */}
-          <text x={LABEL - 16} y={R2 + 4 * k} fontSize={fs(11)} fontWeight={800} letterSpacing={1.2} fill={C.blue} textAnchor="end" opacity={dimRail(2)}>TEMPO 2</text>
-          <text x={LABEL - 16} y={R2 + 22 * k} fontSize={fs(13)} fontWeight={700} fill={C.text} textAnchor="end" opacity={dimRail(2)}>Execução das atividades</text>
+          <text x={LABEL - 16} y={R2 + 4 * k} fontSize={fs(11)} fontWeight={800} letterSpacing={1.2} fill={C.blue} textAnchor="end" opacity={dimRail(2)}>TEMPO DA FORMAÇÃO</text>
+          <text x={LABEL - 16} y={R2 + 22 * k} fontSize={fs(13)} fontWeight={700} fill={C.text} textAnchor="end" opacity={dimRail(2)}>Formação e compromissos</text>
           {rows.map((r, i) => {
             const y = R2 + 34 * k + i * ROW
             const visibleRow = shown(r)
@@ -267,6 +277,11 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
                         <rect x={X(after.start)} y={by} width={Math.max(3, X(after.end) - X(after.start))} height={bh} rx={3}
                           fill={st.key === "cenario" || st.key === "planejado" ? "#fff" : `url(#tt-after-${size})`} stroke={C.after} strokeWidth={st.key === "cenario" || st.key === "planejado" ? 1.5 : 0} strokeDasharray={st.key === "cenario" ? "6 4" : undefined} />
                       )}
+                      {after && !multi && it.kind === "curso" && step !== 4 && X(after.end) - X(after.start) > 70 * k && (
+                        <text x={X(after.start) + 6 * k} y={by - 5 * k} fontSize={fs(10.5)} fontWeight={700} fill={C.afterText}>
+                          Execução posterior à vigência — situação financeira a verificar
+                        </text>
+                      )}
                       {!multi && X(it.range.end) - X(it.range.start) > 120 * k && (
                         <text x={X(it.range.start) + 9 * k} y={by + bh / 2 + 4 * k} fontSize={fs(11)} fontWeight={600} fill={bs.text}>{fmtDate(it.start, "month")} – {fmtDate(it.end, "month")}</text>
                       )}
@@ -277,7 +292,7 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
                 {/* Temporal vs financial — two independent answers (studio: always; stage: step 6) */}
                 {(!stage || step === 6) && (
                   <foreignObject x={stage ? X(d1) - 520 : W - RIGHT + 10} y={y + 3} width={stage ? 510 : RIGHT - 14} height={ROW - 6}>
-                    <SituationPair items={r.items} docVig={docVig} stage={stage} />
+                    <SituationPair items={r.items} docVig={docVig} stage={stage} fins={fins} />
                   </foreignObject>
                 )}
               </g>
@@ -347,16 +362,30 @@ export function TwoTimes({ size = "studio", projectId = "p2" }: { size?: "studio
   )
 }
 
-function SituationPair({ items, docVig, stage }: { items: EffItem[]; docVig: DayRange | null; stage: boolean }) {
+/** Financial line of a row: the acquisition record when there is one, otherwise the registered situation. */
+function finLine(items: EffItem[], fins: FinRecord[]) {
+  const it = items[0]
+  const acq = it ? acqOf(fins, it.id) : undefined
+  if (acq) {
+    const paid = acq.acqStatus === "integralmente_pago"
+    if (paid && acq.proof === "comprovado") return "Aquisição integralmente paga e comprovada"
+    if (paid) return "Aquisição registrada como paga · comprovação pendente"
+    if (acq.acqStatus === "em_negociacao") return "Aquisição: negociação · compra a formalizar"
+    return `Aquisição: ${acq.acqStatus === "contratado" ? "contratada" : acq.acqStatus === "parcialmente_pago" ? "parcialmente paga" : "prevista"}`
+  }
+  if (it?.kind === "bolsa") return `Compromisso condicionado${it.conditions ? " · frequência e desempenho" : ""} · ${FIN_LABEL[it.finSituation ?? "pendente"].toLowerCase()}`
+  return [...new Set(items.map((i) => FIN_LABEL[i.finSituation ?? "pendente"]))].join(" / ")
+}
+
+function SituationPair({ items, docVig, stage, fins }: { items: EffItem[]; docVig: DayRange | null; stage: boolean; fins: FinRecord[] }) {
   const t = items.map((it) => temporalSituation(it.range, docVig, it.dateUndetermined))
   const worst = t.find((x) => x.key === "integral") ?? t.find((x) => x.key === "parcial") ?? t[0]
-  const fins = [...new Set(items.map((i) => i.finSituation ?? "pendente"))]
   return (
     <div className={cn("flex h-full flex-col justify-center leading-tight", stage ? "text-[15px]" : "text-[10.5px]")}>
       <span className={worst?.key === "dentro" ? "text-foreground" : worst?.key === "sem_ref" ? "text-muted-foreground" : "font-semibold text-[#9A4A08]"}>
         ⏱ {worst ? TEMPORAL_LABEL[worst.key] : "—"}{worst?.months ? ` · ${worst.months} m` : ""}
       </span>
-      <span className="truncate text-muted-foreground">R$ {fins.map((f) => FIN_LABEL[f]).join(" / ")}</span>
+      <span className="truncate text-muted-foreground" title={finLine(items, fins)}>R$ {finLine(items, fins)}</span>
     </div>
   )
 }

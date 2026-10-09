@@ -29,8 +29,8 @@ export const C = {
   afterSoft: "#FFF5EA",
   afterText: "#9A4A08",
   /** V8: hypothetical scenario (simulation) — purple, always labelled. */
-  scenario: "#6D4AC4",
-  scenarioSoft: "#F1ECFB",
+  scenario: "#4338CA",
+  scenarioSoft: "#EEF0FB",
   /** Financial event proven as realized. */
   paid: "#23845D",
   paidSoft: "#E7F4EE",

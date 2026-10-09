@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Check, ChevronDown, Eye, EyeOff, Layers, Users, Wallet, X } from "lucide-react"
+import { Check, ChevronDown, Eye, EyeOff, Layers, Sparkles, Users, Wallet, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { FIN_FILTERS, type FinFilter } from "@/lib/finance"
@@ -8,6 +8,7 @@ import { useEffectiveItems } from "@/store/hooks"
 import { useView, type DisplayMode } from "@/store/view"
 
 const MODES: { id: DisplayMode; label: string; hint: string }[] = [
+  { id: "modalities", label: "Projetos e modalidades", hint: "Visão principal: três faixas de projeto e cinco modalidades com as edições lado a lado" },
   { id: "projects", label: "Somente Projetos", hint: "Nível 1 — as três faixas P1, P2 e P3" },
   { id: "courses", label: "Projetos + Cursos", hint: "Nível 2 — projetos e ações principais, cada uma recolhida em uma linha" },
   { id: "details", label: "Projetos + Cursos + Detalhes", hint: "Nível 3 — ações expandidas: aquisição, bolsas, NF, materiais" },
@@ -36,7 +37,7 @@ export function TimelineControls() {
     view.set({ turmaFilter: view.turmaFilter.includes(id) ? view.turmaFilter.filter((x) => x !== id) : [...view.turmaFilter, id] })
   const turmaLabel =
     view.turmaFilter.length === 0 ? "Todas" : view.turmaFilter.length === 1 ? (turmas.find((t) => t.id === view.turmaFilter[0])?.name ?? "1 turma") : `${view.turmaFilter.length} turmas`
-  const hier = view.displayMode === "courses" || view.displayMode === "details"
+  const hier = view.displayMode === "courses" || view.displayMode === "details" || view.displayMode === "modalities"
   const fitProject = (pid: string) => {
     const mine = items.filter((i) => i.projectId === pid && !i.hidden)
     if (!mine.length) return
@@ -181,17 +182,24 @@ export function TimelineControls() {
       <label className={cn("flex items-center gap-1.5 text-muted-foreground", !hier && "opacity-50")} title={hier ? "Situação financeira registrada das ações" : "Disponível nas visões Projetos + Cursos"}>
         <Wallet className="size-3.5" />
         <span className="hidden xl:inline">Financeiro</span>
-        <select aria-label="Situação financeira" disabled={!hier} className="field !w-[178px] !py-1 !text-xs font-semibold text-foreground" value={view.finFilter} onChange={(e) => view.set({ finFilter: e.target.value as FinFilter })}>
+        <select aria-label="Situação financeira" disabled={!hier} className="field !w-[160px] !py-1 !text-xs font-semibold text-foreground" value={view.finFilter} onChange={(e) => view.set({ finFilter: e.target.value as FinFilter })}>
           {FIN_FILTERS.map((f) => (
             <option key={f.id} value={f.id} title={f.hint}>{f.label}</option>
           ))}
         </select>
       </label>
 
+      <Button size="sm" variant="outline" active={view.showFinance} aria-pressed={view.showFinance} disabled={!hier} title="Mostrar colunas de contratado, pago e saldo (sob demanda)" onClick={() => view.set({ showFinance: !view.showFinance })}>
+        Valores
+      </Button>
+      <Button size="sm" variant="primary" title="Simplifica a tela: vigência × formação na mesma régua" onClick={() => view.set({ studioView: "twotimes", explain: 1 })}>
+        <Sparkles className="size-3.5" /> Explicar vigência
+      </Button>
+
       {view.displayMode === "filtered" && view.turmaFilter.length === 0 && (
         <span className="text-muted-foreground">Selecione uma ou mais turmas para filtrar as atividades.</span>
       )}
-      <span className="ml-auto hidden text-[11px] text-muted-foreground 2xl:inline">Filtros afetam só a visualização — nenhum registro é alterado.</span>
+      <span className="ml-auto hidden text-[11px] whitespace-nowrap text-muted-foreground min-[1800px]:inline">Filtros afetam só a visualização.</span>
     </div>
   )
 }

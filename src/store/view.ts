@@ -3,9 +3,10 @@ import { dayOf } from "@/lib/dates"
 import type { FinFilter } from "@/lib/finance"
 
 export type Tool = "select" | "hand" | "note" | "connect"
-export type StudioView = "timeline" | "journey" | "twotimes"
-/** projects = nível 1 · courses = nível 2 · details = nível 3 · all/filtered = matriz por categorias (V6). */
-export type DisplayMode = "projects" | "courses" | "details" | "all" | "filtered"
+export type StudioView = "timeline" | "journey" | "twotimes" | "projeto3"
+/** modalities = V11 (padrão) · projects = só projetos · courses/details = hierarquia V8 · all/filtered = matriz V6. */
+export type DisplayMode = "modalities" | "projects" | "courses" | "details" | "all" | "filtered"
+export type PanelTab = "conteudo" | "design" | "dados"
 export type JourneyMode = "conceitual" | "turma" | "matriz"
 
 export const RANGE_PRESETS = [
@@ -15,10 +16,11 @@ export const RANGE_PRESETS = [
 ] as const
 
 export const ZOOM_PRESETS = {
-  anual: { label: "Anual", pxPerDay: 300 / 365 },
-  trimestral: { label: "Trimestral", pxPerDay: 240 / 91 },
-  mensal: { label: "Mensal", pxPerDay: 220 / 30.4 },
-  semanal: { label: "Semanal", pxPerDay: 150 / 7 },
+  anual: { label: "Anos", pxPerDay: 300 / 365 },
+  semestral: { label: "Semestres", pxPerDay: 300 / 182 },
+  trimestral: { label: "Trimestres", pxPerDay: 240 / 91 },
+  mensal: { label: "Meses", pxPerDay: 220 / 30.4 },
+  semanal: { label: "Semanas", pxPerDay: 150 / 7 },
 } as const
 
 export const MIN_PPD = 0.12
@@ -51,6 +53,13 @@ interface ViewState {
   hideSettled: string[]
   finFilter: FinFilter
   toggleAction: (key: string) => void
+  /** V11 */
+  collapsedModalities: string[]
+  showFinance: boolean
+  showSummary: boolean
+  panelTab: PanelTab
+  /** Requested step of the "Explicar vigência" walkthrough (consumed by Dois Tempos). */
+  explain: number
   journeyMode: JourneyMode
   journeyTurma: string | null
   detailAll: boolean
@@ -70,7 +79,7 @@ interface ViewState {
 const clampPpd = (v: number, width = 1000) => Math.min(MAX_PPD, Math.max(MIN_PPD, width / (12 * 365), v))
 
 const VIEW_KEY = "ska-temporal-studio:view"
-const PERSISTED = ["expanded", "collapsedActions", "collapsedProjects", "hideSettled", "finFilter", "displayMode", "hiddenProjects", "turmaFilter", "turmaFilterMode", "journeyMode", "journeyTurma", "detailAll", "sidebarOpen"] as const
+const PERSISTED = ["collapsedModalities", "showFinance", "showSummary", "panelTab", "expanded", "collapsedActions", "collapsedProjects", "hideSettled", "finFilter", "displayMode", "hiddenProjects", "turmaFilter", "turmaFilterMode", "journeyMode", "journeyTurma", "detailAll", "sidebarOpen"] as const
 function loadView(): Partial<ViewState> {
   try {
     const raw = typeof window !== "undefined" ? window.localStorage.getItem(VIEW_KEY) : null
@@ -92,7 +101,12 @@ export const useView = create<ViewState>((set, get) => ({
   showAnnotations: true,
   showTrace: false,
   studioView: "timeline",
-  displayMode: "courses",
+  displayMode: "modalities",
+  collapsedModalities: [],
+  showFinance: false,
+  showSummary: true,
+  panelTab: "conteudo",
+  explain: 0,
   expanded: [],
   collapsedActions: [],
   collapsedProjects: [],

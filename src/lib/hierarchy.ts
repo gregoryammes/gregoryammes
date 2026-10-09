@@ -42,7 +42,7 @@ export interface HierStats {
 const ACTION_KINDS: ItemKind[] = ["curso", "atividade", "operacao", "contrato", "turma", "bolsa"]
 const KIND_RANK: Partial<Record<ItemKind, number>> = { curso: 0, atividade: 1, turma: 2, bolsa: 3, operacao: 4, contrato: 5 }
 
-interface Action {
+export interface ResolvedAction {
   key: string
   /** Main record (for a consolidated programme: its first member). */
   item: EffItem
@@ -55,7 +55,13 @@ interface Action {
 
 const visible = (hidden: string[]) => (pid: string | null | undefined) => !pid || !hidden.includes(pid)
 
-export function computeHierarchy(o: HierOptions): RowLayout & { stats: HierStats } {
+export type ResolveOptions = Pick<HierOptions, "doc" | "items" | "fins" | "ref" | "hiddenProjects" | "hideSettled" | "finFilter" | "consolidations">
+
+/**
+ * Actions visible under the current filters: project visibility (with explicit participation of
+ * another project), "concluídas e pagas" and the financial filter. Shared by every layout.
+ */
+export function resolveActions(o: ResolveOptions): { actions: ResolvedAction[]; stats: HierStats } {
   const vis = visible(o.hiddenProjects)
   const byId = new Map(o.items.map((i) => [i.id, i]))
   const cons = new Map((o.consolidations ?? []).map((c) => [c.id, c]))
@@ -79,7 +85,7 @@ export function computeHierarchy(o: HierOptions): RowLayout & { stats: HierStats
   }
 
   const stats: HierStats = { settledHidden: {}, settledKeptOpen: {}, finHidden: 0 }
-  const actions: Action[] = []
+  const actions: ResolvedAction[] = []
   for (const r of raw) {
     const members = r.members ?? [r.item]
     const pid = r.item.projectId
@@ -116,7 +122,15 @@ export function computeHierarchy(o: HierOptions): RowLayout & { stats: HierStats
       via: home && home !== pid ? `participação do ${projName(home)} · resp. ${projName(pid)}` : undefined,
     })
   }
-  const rank = (a: Action) => (a.cons ? 3 : (KIND_RANK[a.item.kind] ?? 9))
+  return { actions, stats }
+}
+
+export function computeHierarchy(o: HierOptions): RowLayout & { stats: HierStats } {
+  const vis = visible(o.hiddenProjects)
+  const byId = new Map(o.items.map((i) => [i.id, i]))
+  const isChild = (i: EffItem) => !!i.parentId && byId.has(i.parentId) && i.parentId !== i.id
+  const { actions, stats } = resolveActions(o)
+  const rank = (a: ResolvedAction) => (a.cons ? 3 : (KIND_RANK[a.item.kind] ?? 9))
   actions.sort((a, b) => rank(a) - rank(b) || a.item.range.start - b.item.range.start || a.item.name.localeCompare(b.item.name))
 
   // ── Rows ─────────────────────────────────────────────────────────────────

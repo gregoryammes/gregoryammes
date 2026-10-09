@@ -7,7 +7,7 @@ import { C } from "@/lib/visual"
 import { cn } from "@/lib/utils"
 import { useStudio } from "@/store/store"
 import { useAnalysis } from "@/store/hooks"
-import { useView, type Tool } from "@/store/view"
+import { useView, ZOOM_PRESETS, type Tool } from "@/store/view"
 
 const TOOLS: { id: Tool; icon: typeof Hand; label: string; key: string }[] = [
   { id: "select", icon: MousePointer2, label: "Selecionar", key: "V" },
@@ -35,6 +35,11 @@ export function CanvasToolbar() {
         </button>
       ))}
       <span className="mx-1 h-5 w-px bg-border" />
+      <select aria-label="Zoom" title="Zoom — muda só a escala, nunca as datas" className="rounded border bg-white px-1.5 py-1 text-xs text-foreground" value=""
+        onChange={(e) => { const z = ZOOM_PRESETS[e.target.value as keyof typeof ZOOM_PRESETS]; if (z) { view.setZoom(z.pxPerDay); view.set({ range: null }) } }}>
+        <option value="">Zoom…</option>
+        {Object.entries(ZOOM_PRESETS).map(([k, z]) => <option key={k} value={k}>{z.label}</option>)}
+      </select>
       <label className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground" title="Encaixe automático ao arrastar">
         <select aria-label="Encaixe automático"
           className="rounded border bg-white px-1.5 py-1 text-xs text-foreground"
@@ -86,7 +91,7 @@ export function Legend() {
     <div className="scroll-thin flex items-center gap-x-3.5 overflow-x-auto text-[11px] whitespace-nowrap text-muted-foreground">
       <span className="flex items-center gap-1.5"><span className="h-3 w-0.5 bg-[#5FA548]" /> referência (hoje)</span>
       <span className="flex items-center gap-1.5"><span className="h-3 w-0.5 bg-[#C2410C]" /> fim da vigência (documental)</span>
-      <span className="flex items-center gap-1.5"><span className="h-3 border-l-2 border-dashed border-[#6D4AC4]" /> vigência em cenário</span>
+      <span className="flex items-center gap-1.5"><span className="h-3 border-l-2 border-dashed border-[#4338CA]" /> vigência em cenário</span>
       {items.map(([g, l], i) => (
         <span key={i} className="flex items-center gap-1.5">{g}{l}</span>
       ))}

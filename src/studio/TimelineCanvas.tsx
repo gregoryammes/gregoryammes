@@ -4,15 +4,18 @@ import {
   type DayRange,
 } from "@/lib/dates"
 import type { EffItem } from "@/lib/analysis"
-import { computeRows, BAR_H, COMP_LABEL, LABEL_W, SUB_H, type Row } from "@/lib/layout"
+import { computeRows, BAR_H, COMP_LABEL, LABEL_W, SUB_H, type Drop, type Row } from "@/lib/layout"
 import { computeHierarchy } from "@/lib/hierarchy"
+import { computeModalities, LANE_H } from "@/lib/modalities"
 import { acqWarnings, finRange, finRecordsIn, paidOf, type Tag } from "@/lib/finance"
 import { C, barStyleFor, itemColor, statusOf, textWidth, truncate, wrapText, type StatusKey } from "@/lib/visual"
-import { reorderRows, useStudio, uid } from "@/store/store"
+import { reorderRows, useStudio, uid, writeVisual } from "@/store/store"
 import { useCompareItems, useEffectiveItems, useProjectColor } from "@/store/hooks"
 import { useView } from "@/store/view"
-import { ACQ_STATUS_LABEL, FIN_KIND_LABEL, FIN_LABEL, GROUPS, KIND_LABEL, PARCEL_LABEL, PROOF_LABEL, type Annotation, type FinRecord, type GroupId } from "@/data/types"
-import { docVigRange, offeringLabel, relatedToTurmas, shortNameOf, TEMPORAL_LABEL, temporalSituation } from "@/lib/v6"
+import { ACQ_STATUS_LABEL, FIN_KIND_LABEL, FIN_LABEL, GROUPS, KIND_LABEL, MODALITIES, PARCEL_LABEL, PROOF_LABEL, type Annotation, type FinRecord, type GroupId, type ModalityId, type StudioDoc } from "@/data/types"
+import { FinanceColumn, FIN_COL_W } from "./FinanceColumn"
+import { BlockMenu, InlineLabel } from "./CanvasOverlays"
+import { docVigRange, offeringLabel, relatedToTurmas, shortNameOf, TEMPORAL_LABEL, temporalSituation, turmasOf } from "@/lib/v6"
 import { confirmAction } from "@/components/Confirm"
 
 /* ──────────────────────────────────────────────────────────────────────────────
@@ -40,7 +43,7 @@ type Gesture =
       began: boolean
       temporalReady: boolean
       clickSelect: string | null
-      drop: { group: GroupId; index: number; lineY: number } | null
+      drop: Drop | null
     }
   | { type: "resize-l" | "resize-r"; id: string; sx: number; orig: { start: number; end: number }; began: boolean }
   | { type: "pan"; sx: number; sy: number; x0: number; scrollY: number; moved: boolean }
@@ -66,7 +69,13 @@ export function TimelineCanvas() {
   const wrapRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const gesture = useRef<Gesture | null>(null)
-  const [size, setSize] = useState({ w: 1200, h: 600 })
+  const [rawSize, setSize] = useState({ w: 1200, h: 600 })
+  // Optional financial columns on the right: the time area gives up that width.
+  const finW = view.showFinance ? FIN_COL_W : 0
+  const size = { w: rawSize.w - finW, h: rawSize.h }
+  const [inline, setInline] = useState<{ id: string; x: number; y: number; w: number; h: number } | null>(null)
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  const downHit = useRef<{ kind?: string; id: string }>({ id: "" })
   const [, force] = useState(0)
   const [hover, setHover] = useState<{ id: string; x: number; y: number; hyp?: boolean } | null>(null)
   const [dragHint, setDragHint] = useState<{ x: number; y: number; lines: string[] } | null>(null)
@@ -75,7 +84,7 @@ export function TimelineCanvas() {
 
   const { settings } = doc
   const { displayMode, hiddenProjects, turmaFilter, turmaFilterMode } = view
-  const hier = displayMode === "courses" || displayMode === "details"
+  const hier = displayMode === "courses" || displayMode === "details" || displayMode === "modalities"
   const refDay = toDay(settings.referenceDate)
   const fins = useMemo(() => finRecordsIn(doc, scenarioId), [doc, scenarioId])
   // Visibility filters only decide what is drawn: records, links and scenarios are untouched.
@@ -94,7 +103,21 @@ export function TimelineCanvas() {
   )
   const layout = useMemo(
     () =>
-      hier
+      displayMode === "modalities"
+        ? computeModalities({
+            doc,
+            items: visible,
+            fins,
+            ref: refDay,
+            expanded: view.expanded,
+            collapsedModalities: view.collapsedModalities,
+            hiddenProjects,
+            hideSettled: view.hideSettled,
+            finFilter: view.finFilter,
+            consolidations: doc.consolidations,
+            detailAll: view.detailAll,
+          })
+        : hier
         ? computeHierarchy({
             doc,
             items: visible,
@@ -117,9 +140,10 @@ export function TimelineCanvas() {
             portfolio: displayMode === "projects",
             consolidations: doc.consolidations,
           }),
-    [visible, settings.groupsHidden, settings.groupsCollapsed, settings.groupsDetailed, view.detailAll, displayMode, doc, hier, fins, refDay, view.expanded, view.collapsedActions, view.collapsedProjects, hiddenProjects, view.hideSettled, view.finFilter],
+    [visible, settings.groupsHidden, settings.groupsCollapsed, settings.groupsDetailed, view.detailAll, displayMode, doc, hier, fins, refDay, view.expanded, view.collapsedActions, view.collapsedProjects, hiddenProjects, view.hideSettled, view.finFilter, view.collapsedModalities],
   )
   const projects = visible.filter((i) => i.kind === "projeto" && !(i.projectId && hiddenProjects.includes(i.projectId)))
+  const allItemRows = layout.itemRows ?? layout.rows.filter((r): r is Extract<Row, { type: "item" }> => r.type === "item")
   const vig = items.find((i) => i.kind === "vigencia" && i.projectId === "p2") ?? items.find((i) => i.kind === "vigencia")
   // The documental marker is read from the baseline records, never from the active scenario.
   const docVig: DayRange | null = docVigRange(doc)
@@ -138,7 +162,7 @@ export function TimelineCanvas() {
       const h = Math.floor(e.contentRect.height)
       if (!w || !h) return
       setSize({ w, h })
-      useView.getState().set({ width: Math.max(200, w - LABEL_W) })
+      useView.getState().set({ width: Math.max(200, w - LABEL_W - (useView.getState().showFinance ? FIN_COL_W : 0)) })
       const r = useView.getState().range
       if (!fitted.current) {
         fitted.current = true
@@ -148,11 +172,16 @@ export function TimelineCanvas() {
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
+  // Keep the date scale exact when the financial columns open or close.
+  useEffect(() => {
+    useView.getState().set({ width: Math.max(200, rawSize.w - LABEL_W - finW) })
+  }, [finW, rawSize.w])
 
   const { x0, pxPerDay: ppd, scrollY } = view
   const ppy = ppd * 365.25
   const showSem = ppy >= 90
-  const showQuarters = ppy >= 900
+  // The ruler is always ANO → SEMESTRE → MÊS (quarters are not a reading level here).
+  const showQuarters = false
   const showMonths = ppy >= 150
   const HEADER = PROJ_H + YEAR_H + (showSem ? SEM_H : 0) + (showMonths ? MONTH_H : 0) + 4
   const BODY_TOP = HEADER
@@ -201,6 +230,8 @@ export function TimelineCanvas() {
           confirmAction(`Excluir ${ids.length} elemento(s)? (é possível desfazer)`).then((ok) => ok && st.deleteItems(ids))
         }
       } else if (e.key === "Escape") {
+        setMenu(null)
+        setInline(null)
         st.select([])
         useView.getState().set({ connectFrom: null, tool: "select" })
       } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
@@ -282,12 +313,16 @@ export function TimelineCanvas() {
     const hit = (e.target as Element).closest<SVGElement>("[data-hit]")
     const kind = hit?.dataset.hit
     const id = hit?.dataset.id ?? ""
+    // Selecting may open the properties drawer and shift the canvas: remember what was pressed.
+    downHit.current = { kind, id }
     setHover(null)
 
     if (kind === "g-collapse") return toggleGroup("groupsCollapsed", id as GroupId)
     if (kind === "h-toggle") return v.toggleAction(id)
     if (kind === "p-toggle") return v.set({ collapsedProjects: v.collapsedProjects.includes(id) ? v.collapsedProjects.filter((x) => x !== id) : [...v.collapsedProjects, id] })
     if (kind === "fin") return st.selectFin(id)
+    if (kind === "m-collapse") return v.set({ collapsedModalities: v.collapsedModalities.includes(id) ? v.collapsedModalities.filter((x) => x !== id) : [...v.collapsedModalities, id] })
+    setMenu(null)
     if (kind === "g-detail") return toggleGroup("groupsDetailed", id as GroupId)
     if (kind === "cons-label") {
       const ids = items.filter((i) => i.consolidation === id).map((i) => i.id)
@@ -358,6 +393,14 @@ export function TimelineCanvas() {
       return
     }
     gesture.current = { type: "marquee", sx: p.x, sy: p.y, cx: p.x, cy: p.y, additive: e.shiftKey }
+  }
+
+  function openInline(id: string) {
+    const r = layout.rowOf(id)
+    const it = byId.get(id)
+    if (!r || !it) return
+    const x = Math.max(LABEL_W, X(it.range.start))
+    setInline({ id, x, y: Y(r.top) + (r.h - BAR_H) / 2, w: Math.max(180, Math.min(X(it.range.end) - x, 340)), h: BAR_H })
   }
 
   function showRangeHint(p: { x: number; y: number }, r: DayRange, orig: DayRange) {
@@ -478,8 +521,7 @@ export function TimelineCanvas() {
       const x1 = Math.min(g.sx, g.cx), x2 = Math.max(g.sx, g.cx)
       const y1 = Math.min(g.sy, g.cy), y2 = Math.max(g.sy, g.cy)
       const d1 = dayAt(x1), d2 = dayAt(x2)
-      const hits = layout.rows
-        .filter((r): r is Extract<Row, { type: "item" }> => r.type === "item")
+      const hits = allItemRows
         .filter((r) => {
           const top = Y(r.top) + 6, bot = top + r.h - 12
           return r.item.range.end > d1 && r.item.range.start < d2 && bot > y1 && top < y2
@@ -493,7 +535,9 @@ export function TimelineCanvas() {
       if (g.began) {
         if (g.drop) {
           const drop = g.drop
-          st.live((d) => reorderRows(d, st.scenarioId, g.anchor, drop.group, layout.orderOf(drop.group), drop.index))
+          // Vertical moves only change the arrangement (modality / lane / row), never the dates.
+          if (drop.modality) st.live((d) => writeVisual(d, st.scenarioId, g.anchor, { modality: drop.modality as ModalityId, modLane: drop.index }))
+          else st.live((d) => reorderRows(d, st.scenarioId, g.anchor, drop.group, layout.orderOf(drop.group), drop.index))
         }
         const it = visible.find((i) => i.id === g.anchor)
         st.end(it?.name)
@@ -577,10 +621,20 @@ export function TimelineCanvas() {
           gesture.current = null
           setDragHint(null)
         }}
-        onDoubleClick={(e) => {
-          const hit = (e.target as Element).closest<SVGElement>("[data-hit]")
-          const k = hit?.dataset.hit
-          if (k === "item" || k === "item-static" || k === "label") useStudio.getState().setEditing(hit?.dataset.id ?? null)
+        onDoubleClick={() => {
+          // Pointer capture retargets click events to the svg, and selecting may shift the canvas:
+          // use the block that was pressed, and place the editor from the layout.
+          const { kind: k, id } = downHit.current
+          if (k === "item" || k === "item-static") openInline(id)
+          else if (k === "label") useStudio.getState().setEditing(id || null)
+        }}
+        onContextMenu={(e) => {
+          const { kind: k, id } = downHit.current
+          if (!(k === "item" || k === "item-static" || k === "label" || k === "item-l" || k === "item-r")) return
+          e.preventDefault()
+          if (!useStudio.getState().selection.includes(id)) useStudio.getState().select([id])
+          const p = local(e)
+          setMenu({ id, x: p.x, y: p.y })
         }}
       >
         <defs>
@@ -607,8 +661,13 @@ export function TimelineCanvas() {
         <g clipPath="url(#clip-body)">
           {/* After the documental vigência: very light red, never hiding the bars */}
           {docVig && <rect x={X(docVig.end)} y={BODY_TOP} width={Math.max(0, size.w - X(docVig.end))} height={bodyH} fill={C.afterSoft} />}
+          {hier && ProjectTints()}
           {layout.rows.map((r, i) =>
-            r.type === "group" ? (
+            r.type === "heading" ? (
+              <rect key={`hd${i}`} x={LABEL_W} y={Y(r.top)} width={timeW} height={r.h} fill="#FFFFFF" fillOpacity={0.85} />
+            ) : r.type === "lane" && r.index % 2 === 1 ? (
+              <rect key={`lz${i}`} x={LABEL_W} y={Y(r.top)} width={timeW} height={r.h} fill={C.zebra} fillOpacity={0.55} />
+            ) : r.type === "group" ? (
               <rect key={`gb${i}`} x={LABEL_W} y={Y(r.top)} width={timeW} height={r.h} fill="#FFFFFF" fillOpacity={0.6} />
             ) : r.type === "project" ? (
               <rect key={`pj${i}`} x={LABEL_W} y={Y(r.top)} width={timeW} height={r.h} fill="#F3F6FA" />
@@ -629,8 +688,8 @@ export function TimelineCanvas() {
 
           {/* Compare scenario ghosts */}
           {compare &&
-            layout.rows.map((r, i) => {
-              if (r.type !== "item" || r.virtual) return null
+            allItemRows.map((r, i) => {
+              if (r.virtual) return null
               const c = compareMap.get(r.item.id)
               if (!c || (c.range.start === r.item.range.start && c.range.end === r.item.range.end)) return null
               return (
@@ -640,6 +699,8 @@ export function TimelineCanvas() {
             })}
 
           {layout.rows.map((r, i) => {
+            if (r.type === "lane") return <g key={`ln${r.kind}${r.label}${i}`}>{LaneBars({ r })}</g>
+            if (r.type === "heading") return null
             if (r.type === "project") return <g key={`pr${r.projectId}${i}`}>{ProjectBar({ r })}</g>
             if (r.type === "comp") return <g key={`cp${r.actionId}${r.comp}${i}`}>{CompBar({ r })}</g>
             if (r.type === "note")
@@ -802,6 +863,20 @@ export function TimelineCanvas() {
         )}
       </svg>
 
+      {view.showFinance && <div className="absolute top-0 right-0" style={{ left: size.w }}><FinanceColumn rows={layout.rows} top={HEADER} header={HEADER} height={bodyH} scrollY={scrollY} fins={fins} /></div>}
+      {inline && byId.get(inline.id) && <InlineLabel item={byId.get(inline.id)!} {...inline} onClose={() => setInline(null)} />}
+      {menu && byId.get(menu.id) && (
+        <BlockMenu
+          item={byId.get(menu.id)!}
+          x={menu.x}
+          y={menu.y}
+          w={size.w}
+          toggleKey={allItemRows.find((r) => r.item.id === menu.id && r.toggle)?.toggle}
+          onClose={() => setMenu(null)}
+          onRename={() => openInline(menu.id)}
+        />
+      )}
+
       {/* Vertical scrollbar */}
       {maxScroll > 0 && (
         <div className="pointer-events-none absolute right-1 w-1.5 rounded-full bg-black/5" style={{ top: HEADER + 4, bottom: 12 }}>
@@ -811,7 +886,7 @@ export function TimelineCanvas() {
 
       {/* Hover card: full details live here, not on the bar */}
       {hover && hoverItem && !dragHint && (
-        <HoverCard item={hoverItem} x={hover.x} y={hover.y} hyp={hover.hyp} w={size.w} refDay={refDay} docVig={docVig} label={offeringLabel(doc, hoverItem, true)} />
+        <HoverCard item={hoverItem} x={hover.x} y={hover.y} hyp={hover.hyp} w={size.w} refDay={refDay} docVig={docVig} label={offeringLabel(doc, hoverItem, true)} doc={doc} fins={fins} />
       )}
       {dragHint && (
         <div className="pointer-events-none absolute z-20 rounded-md border border-primary/40 bg-white px-3 py-2 text-xs shadow-lg" style={{ left: Math.min(dragHint.x + 16, size.w - 280), top: Math.max(HEADER + 6, dragHint.y - 58) }}>
@@ -832,9 +907,18 @@ export function TimelineCanvas() {
     const y = Y(r.top)
     if (r.type === "project") return ProjectLabel({ r })
     if (r.type === "note") return null
+    if (r.type === "heading")
+      return (
+        <g>
+          <rect x={0} y={y} width={LABEL_W} height={r.h} fill="#FFFFFF" />
+          <text x={16} y={y + r.h / 2 + 4} fontSize={10.5} fontWeight={800} letterSpacing={1.6} fill={C.text3}>{r.text}</text>
+          <line x1={16 + textWidth(r.text, 10.5) + 18} x2={LABEL_W - 12} y1={y + r.h / 2} y2={y + r.h / 2} stroke={C.grid} />
+        </g>
+      )
+    if (r.type === "lane") return LaneLabel({ r })
     if (r.type === "comp") {
       const x = 14 + r.depth * 16
-      const label = r.comp === "sem_vinculo" ? COMP_LABEL.sem_vinculo : COMP_LABEL[r.comp]
+      const label = `${r.prefix ? `${r.prefix} › ` : ""}${r.comp === "sem_vinculo" ? COMP_LABEL.sem_vinculo : COMP_LABEL[r.comp]}`
       const first = r.fins.find((f) => f.kind === "aquisicao") ?? r.fins[0]
       return (
         <g data-hit={first ? "fin" : "label"} data-id={first ? first.id : (r.actionId ?? "")} style={{ cursor: "pointer" }} opacity={r.action && dimmed(r.action) ? 0.4 : 1}>
@@ -940,11 +1024,20 @@ export function TimelineCanvas() {
     if (x2 < LABEL_W - 60 || x1 > size.w + 60) return null
     const w = Math.max(2, x2 - x1)
     const status = r.virtual ? ("cenario" as StatusKey) : docRow ? "previsto" : statusOf(it, refDay).key
-    const bs = barStyleFor(status, color)
+    const bs0 = barStyleFor(status, color)
+    // A proposed project keeps its identity colour (dashed); purple-indigo marks scenario changes only.
+    if (it.kind === "projeto" && status === "cenario") bs0.stroke = color
+    // Design tab: appearance only — never dates, status or values.
+    const sty = it.style ?? {}
+    const bs = { ...bs0, fill: sty.fill ?? bs0.fill, stroke: sty.stroke ?? bs0.stroke, strokeWidth: sty.strokeWidth ?? bs0.strokeWidth, text: sty.textColor ?? bs0.text }
+    const rx = sty.radius ?? 3
+    const fontFamily = sty.font ? FONT_FAMILY[sty.font] : undefined
+    const fw = sty.weight ?? 600
     const hitKind = docRow ? "item-static" : "item"
     const enter = (e: React.PointerEvent) => !gesture.current && setHover({ id: it.id, x: local(e).x, y: top + r.h, hyp: r.virtual === "hyp" })
     const leave = () => setHover((h) => (h?.id === it.id ? null : h))
-    const fsz = r.thin ? 10.5 : 11.5
+    const fsz = sty.size ?? (r.thin ? 10.5 : 11.5)
+    const gOpacity = (dim ? 0.3 : 1) * (sty.opacity ?? 1)
 
     // Historic action without a dated source: an approximate interval, never a solid bar.
     if (it.dateUndetermined) {
@@ -961,7 +1054,7 @@ export function TimelineCanvas() {
             <rect x={mid - 52} y={cy - 10} width={104} height={20} rx={10} fill="#FFFFFF" stroke="#C9D3DE" />
             <text x={mid} y={cy + 4} fontSize={11} fontWeight={600} fill={C.text2} textAnchor="middle">{label}</text>
           </g>
-          {tags.length > 0 && Tags({ x: x2 + 10, y: cy - 8.5, tags, maxX: size.w - 8 })}
+          {tags.length > 0 && (r.compact ? Tags({ x: Math.max(x1, LABEL_W) + 10, y: cy - 8.5, tags: tags.slice(0, 1), maxX: mid - 56 }) : Tags({ x: x2 + 10, y: cy - 8.5, tags, maxX: size.w - 8 }))}
           {ClipMarks({ x1, x2, y: by, h: BH, fill: C.plan })}
           {isSel && <rect x={x1 - 2} y={by - 2} width={w + 4} height={BH + 4} rx={4} fill="none" stroke={C.selection} strokeWidth={2} pointerEvents="none" />}
         </g>
@@ -972,7 +1065,7 @@ export function TimelineCanvas() {
       return (
         <g opacity={dim ? 0.3 : 1} onPointerEnter={enter} onPointerLeave={leave}>
           <path data-hit="item" data-id={it.id} d={`M${x1},${cy - 9} L${x1 + 9},${cy} L${x1},${cy + 9} L${x1 - 9},${cy} Z`} fill={st0(it) ? "#FFFFFF" : C.navy} stroke={C.navy} strokeWidth={2} style={{ cursor: "grab" }} />
-          <text x={x1 + 15} y={cy + 4} fontSize={12} fontWeight={600} fill={C.text} pointerEvents="none">{fmtDate(it.start)}</text>
+          <text x={r.compact ? x1 - 14 : x1 + 15} y={cy + 4} fontSize={12} fontWeight={600} fill={C.text} textAnchor={r.compact ? "end" : "start"} pointerEvents="none">{fmtDate(it.start)}</text>
           {isSel && <circle cx={x1} cy={cy} r={14} fill="none" stroke={C.selection} strokeWidth={2} pointerEvents="none" />}
         </g>
       )
@@ -988,17 +1081,21 @@ export function TimelineCanvas() {
       r.virtual ? `até ${fmtDate(fromDay(range.end - 1))} · cenário`
       : docRow ? `até ${fmtDate(fromDay(range.end - 1))} · referência documental`
       : it.kind === "vigencia" ? `até ${fmtDate(fromDay(range.end - 1))}`
-      : it.kind === "curso" ? pickFit([offeringLabel(doc, it, true), offeringLabel(doc, it, false), shortDates], room)
+      : it.kind === "curso" ? pickFit(r.compact ? [offeringLabel(doc, it, false), shortNameOf(it), shortDates] : [offeringLabel(doc, it, true), offeringLabel(doc, it, false), shortDates], room - (r.toggle ? 18 : 0))
       : it.shortName ? pickFit([`${it.shortName} · ${shortDates}`, shortDates], room)
       : shortDates
     const fitsInside = textWidth(innerLabel, fsz) < room
     const narrow = w < 12
     const showAfterLabel = after && (it.kind === "curso" || it.kind === "turma" || isSel)
-    const labelX = Math.max(x1, LABEL_W) + 9
+    const hasToggle = !!r.compact && !!r.toggle && !narrow && w > 30
+    const labelX = Math.max(x1, LABEL_W) + 9 + (hasToggle ? 18 : 0)
     // Tags sit next to the label, inside the bar when there is room, otherwise after it.
-    const tags = r.info?.tags ?? []
+    // In the modality view only the acquisition indicator is shown; details live in the hover.
+    const tags = r.compact ? (r.info?.tags ?? []).slice(0, 1) : (r.info?.tags ?? [])
     const tagsInside = fitsInside ? labelX + textWidth(innerLabel, fsz) + 10 : null
-    const afterText = after && afterW > 56 ? (afterW > 150 ? `${afterMonths} meses após a vigência` : `+${afterMonths} m`) : null
+    // Only the visible part of the after-vigência stretch can hold its label.
+    const afterVis = after ? Math.min(X(after.end), size.w) - Math.max(X(after.start), LABEL_W) : 0
+    const afterText = after && afterVis > 56 ? (afterVis > textWidth(`${afterMonths} meses após a vigência`, fsz) + 20 ? `${afterMonths} meses após a vigência` : `+${afterMonths} m`) : null
     const afterTextX = after ? Math.min(X(after.end), size.w) - 8 : 0
     const tagMaxInside = afterText ? afterTextX - textWidth(afterText, fsz) - 10 : x2 - 6
     const tagsTotal = tags.reduce((s2, t) => s2 + textWidth(t.label, 10) + 16, 0)
@@ -1007,7 +1104,7 @@ export function TimelineCanvas() {
     const parcels = it.kind === "bolsa" ? fins.filter((f) => f.kind === "parcela" && f.actionId === it.id) : []
 
     return (
-      <g opacity={dim ? 0.3 : 1} onPointerEnter={enter} onPointerLeave={leave}>
+      <g opacity={gOpacity} onPointerEnter={enter} onPointerLeave={leave} fontFamily={fontFamily}>
         {it.baseRange && r.virtual === undefined && !docRow && (
           <rect x={X(it.baseRange.start)} y={by - 2} width={Math.max(2, (it.baseRange.end - it.baseRange.start) * ppd)} height={BH + 4} rx={4}
             fill="none" stroke={C.text3} strokeDasharray="2 3" pointerEvents="none" />
@@ -1018,8 +1115,8 @@ export function TimelineCanvas() {
             <text x={x1 + w / 2 + 11} y={cy + 4} fontSize={fsz} fill={C.text2} pointerEvents="none">{shortDates}</text>
           </>
         ) : (
-          <rect data-hit={hitKind} data-id={it.id} x={x1} y={by} width={w} height={BH} rx={3}
-            fill={bs.fill} fillOpacity={bs.fillOpacity} stroke={bs.stroke} strokeWidth={bs.strokeWidth} strokeDasharray={bs.dash}
+          <rect data-hit={hitKind} data-id={it.id} x={x1} y={by} width={w} height={BH} rx={rx}
+            fill={bs.fill} fillOpacity={sty.fill ? 1 : bs.fillOpacity} stroke={bs.stroke} strokeWidth={bs.strokeWidth} strokeDasharray={bs.dash}
             style={{ cursor: it.locked || docRow ? "pointer" : "grab" }} />
         )}
         {/* After the vigência: moderate overlay on the same bar — the period continues, nothing is cut. */}
@@ -1030,10 +1127,17 @@ export function TimelineCanvas() {
           </g>
         )}
         {!narrow && (fitsInside ? (
-          <text x={labelX} y={cy + 4} fontSize={fsz} fontWeight={600} fill={bs.text} pointerEvents="none">{innerLabel}</text>
+          <text x={labelX} y={cy + 4} fontSize={fsz} fontWeight={fw} fill={bs.text} pointerEvents="none">{innerLabel}</text>
         ) : !after && x2 + 8 + textWidth(innerLabel, fsz) < size.w ? (
           <text x={x2 + 8} y={cy + 4} fontSize={fsz} fill={C.text2} pointerEvents="none">{innerLabel}</text>
         ) : null)}
+        {hasToggle && (
+          <g data-hit="h-toggle" data-id={r.toggle} style={{ cursor: "pointer" }}>
+            <circle cx={labelX - 15} cy={cy} r={7.5} fill="#FFFFFF" fillOpacity={0.92} stroke={bs.stroke === "#FFFFFF" ? C.grid : bs.stroke} strokeWidth={1} />
+            <path d={r.expanded ? `M${labelX - 19},${cy - 1.5} l4,4 l4,-4` : `M${labelX - 16.5},${cy - 4} l4,4 l-4,4`} fill="none" stroke={C.text} strokeWidth={1.6} />
+            <title>{r.expanded ? "Recolher componentes" : "Expandir: aquisição, bolsas, NF e materiais"}</title>
+          </g>
+        )}
         {tags.length > 0 && !r.thin && Tags({ x: fitsInside || after ? tagX : Math.max(tagX, x2 + 10 + (fitsInside ? 0 : textWidth(innerLabel, fsz) + 8)), y: cy - 8.5, tags, maxX: tagLimit })}
         {status === "concluido" && w > 30 && <path d={`M${x2 - 18},${cy} l4,4 l8,-8`} stroke="#FFFFFF" strokeWidth={2} fill="none" pointerEvents="none" />}
         {afterText && (
@@ -1165,6 +1269,114 @@ export function TimelineCanvas() {
             </g>
           )
         })}
+      </g>
+    )
+  }
+
+  /**
+   * Very light identity background over each project's period. Where two projects overlap, the
+   * band alternates both colours in thin stripes instead of mixing them into a third colour.
+   */
+  function ProjectTints() {
+    const ps = projects.map((p) => ({ id: p.projectId ?? p.id, color: colorOf(p.projectId), r: p.range, hyp: p.certainty === "hipotese" }))
+    const cuts = [...new Set(ps.flatMap((p) => [p.r.start, p.r.end]))].sort((a, b) => a - b)
+    const segs: { a: number; b: number; on: typeof ps }[] = []
+    for (let i = 0; i < cuts.length - 1; i++) {
+      const on = ps.filter((p) => p.r.start <= cuts[i] && p.r.end >= cuts[i + 1])
+      if (on.length) segs.push({ a: cuts[i], b: cuts[i + 1], on })
+    }
+    return (
+      <g pointerEvents="none" data-tints="">
+        <defs>
+          {ps.map((p) => (
+            <linearGradient key={p.id} id={`tint-${p.id}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor={p.color} stopOpacity={p.hyp ? 0.07 : 0.085} />
+              <stop offset="1" stopColor={p.color} stopOpacity={0.025} />
+            </linearGradient>
+          ))}
+          {segs.filter((sg) => sg.on.length > 1).map((sg) => (
+            <pattern key={sg.on.map((o) => o.id).join("-")} id={`tint-mix-${sg.on.map((o) => o.id).join("-")}`} patternUnits="userSpaceOnUse" width={12 * sg.on.length} height="12" patternTransform="rotate(90)">
+              {sg.on.map((o, k) => <rect key={o.id} x={k * 12} width="12" height="12" fill={o.color} fillOpacity={0.06} />)}
+            </pattern>
+          ))}
+        </defs>
+        {segs.map((sg) => (
+          <rect key={`${sg.a}`} data-project-tint={sg.on.map((o) => o.id).join(",")} x={X(sg.a)} y={BODY_TOP} width={Math.max(0, X(sg.b) - X(sg.a))} height={bodyH}
+            fill={sg.on.length > 1 ? `url(#tint-mix-${sg.on.map((o) => o.id).join("-")})` : `url(#tint-${sg.on[0].id})`} />
+        ))}
+        {ps.filter((p) => p.hyp).map((p) => (
+          <g key={`e${p.id}`}>
+            <line x1={X(p.r.start)} x2={X(p.r.start)} y1={BODY_TOP} y2={size.h} stroke={p.color} strokeOpacity={0.45} strokeDasharray="6 5" />
+          </g>
+        ))}
+      </g>
+    )
+  }
+
+  /** Several records on one row, each at its real dates, in sub-lanes when they overlap. */
+  function LaneBars({ r }: { r: Extract<Row, { type: "lane" }> }) {
+    const top = Y(r.top)
+    if (r.collapsed)
+      return (
+        <g pointerEvents="none">
+          {r.members.map((m) => (
+            <rect key={m.item.id} x={X(m.item.range.start)} y={top + r.h / 2 - 3 + m.lane * 0} width={Math.max(3, X(m.item.range.end) - X(m.item.range.start))} height={6} rx={3}
+              fill={itemColor(m.item.kind, colorOf(m.item.projectId), m.item.style?.fill ?? m.item.color)} fillOpacity={0.55} />
+          ))}
+        </g>
+      )
+    if (!r.members.length && r.empty) return <text x={LABEL_W + 14} y={top + r.h / 2 + 4} fontSize={11.5} fontStyle="italic" fill={C.text3} pointerEvents="none">{r.empty}</text>
+    return (
+      <g>
+        {r.members.map((m) => (
+          <g key={m.item.id}>{ItemBar({ r: { type: "item", group: r.group, top: r.top + 6 + m.lane * LANE_H, h: LANE_H, item: m.item, index: r.index, info: m.info, toggle: m.toggle, expanded: m.expanded, compact: true } })}</g>
+        ))}
+      </g>
+    )
+  }
+
+  function LaneLabel({ r }: { r: Extract<Row, { type: "lane" }> }) {
+    const y = Y(r.top)
+    const p = doc.projects.find((x) => x.id === r.projectId)
+    const first = r.members[0]?.item
+    const isSel = r.members.some((m) => sel.has(m.item.id))
+    if (r.kind === "modality") {
+      const mod = MODALITIES.find((m) => m.id === r.modality)
+      return (
+        <g>
+          <rect x={0} y={y} width={LABEL_W} height={r.h} fill={isSel ? "#F2F8FC" : r.index % 2 === 1 ? "#FAFBFD" : "#FFFFFF"} />
+          <g data-hit="m-collapse" data-id={r.modality} style={{ cursor: "pointer" }}>
+            <rect x={0} y={y} width={LABEL_W} height={Math.min(r.h, 44)} fill="transparent" />
+            <path d={r.collapsed ? `M16,${y + 13} l5,5 l-5,5` : `M14,${y + 16} l5,5 l5,-5`} fill="none" stroke={C.text2} strokeWidth={1.8} />
+            <text x={32} y={y + 22} fontSize={13.5} fontWeight={750} fill={C.text}>{mod?.label ?? r.label}</text>
+            <text x={32} y={y + 37} fontSize={11} fill={C.text2}>{r.sub ?? "—"}{r.laneCount > 1 && !r.collapsed ? ` · ${r.laneCount} linhas` : ""}</text>
+            <title>{`${mod?.hint ?? ""}. ${r.collapsed ? "Expandir" : "Recolher"} modalidade.`}</title>
+          </g>
+        </g>
+      )
+    }
+    const fs = r.kind === "project" ? 13 : 12
+    return (
+      <g data-hit={first ? "label" : undefined} data-id={first?.id} style={{ cursor: first ? "pointer" : "default" }}>
+        <rect x={0} y={y} width={LABEL_W} height={r.h} fill={isSel ? "#E6F2FA" : "#FFFFFF"} />
+        {r.kind === "project" ? (
+          <>
+            <rect x={14} y={y + r.h / 2 - 7} width={14} height={14} rx={4} fill={p?.color ?? C.slate} stroke={p?.color} strokeWidth={1.5} strokeDasharray={first?.certainty === "hipotese" ? "3 2" : undefined} fillOpacity={first?.certainty === "hipotese" ? 0.15 : 1} />
+            <text fontSize={fs} fill={C.text}>
+              <tspan x={36} y={y + r.h / 2 - 2} fontWeight={800}>{r.label}</tspan>
+              <tspan x={36} y={y + r.h / 2 + 12} fontSize={11} fill={C.text2}>{projectRole(first, refDay)}{first?.certainty === "hipotese" ? " · em modelagem" : ""}</tspan>
+            </text>
+          </>
+        ) : (
+          <>
+            <path d={`M24,${y} V${y + r.h / 2} H32`} fill="none" stroke="#C9D3DE" />
+            <text fontSize={fs} fill={C.text}>
+              <tspan x={38} y={y + r.h / 2 - 2} fontWeight={650}>{r.label}</tspan>
+              <tspan x={38} y={y + r.h / 2 + 11} fontSize={10.5} fill={C.text2}>{r.sub}</tspan>
+            </text>
+          </>
+        )}
+        <title>{r.kind === "project" ? `${p?.name} — ${p?.phase}. Clique para o resumo do projeto.` : r.label}</title>
       </g>
     )
   }
@@ -1477,12 +1689,19 @@ export function TimelineCanvas() {
   }
 }
 
+const FONT_FAMILY: Record<string, string> = {
+  inter: "Inter, system-ui, sans-serif",
+  display: "Inter Tight, Inter, sans-serif",
+  mono: "JetBrains Mono, monospace",
+  serif: "Georgia, serif",
+}
+
 const TAG_PALETTE: Record<Tag["tone"], { bg: string; fg: string; bd: string }> = {
   paid: { bg: "#E7F4EE", fg: "#1C6B4B", bd: "#9FD3BB" },
   pending: { bg: "#FFF3E6", fg: "#9A4A08", bd: "#F6C99A" },
   plan: { bg: "#F1F4F8", fg: "#475569", bd: "#CBD5E1" },
   neutral: { bg: "#F1F4F8", fg: "#475569", bd: "#CBD5E1" },
-  scenario: { bg: "#F1ECFB", fg: "#5B3BA8", bd: "#C9B8EE" },
+  scenario: { bg: "#EEF0FB", fg: "#3730A3", bd: "#B9BEF0" },
   warn: { bg: "#FFF8DB", fg: "#6B4E00", bd: "#E3C25C" },
   info: { bg: "#E8F3FA", fg: "#0B5F8C", bd: "#A9D2EA" },
 }
@@ -1537,7 +1756,14 @@ function StatusGlyph({ x, y, status, pending, color }: { x: number; y: number; s
   )
 }
 
-function HoverCard({ item, x, y, hyp, w, refDay, docVig, label }: { item: EffItem; x: number; y: number; hyp?: boolean; w: number; refDay: number; docVig: DayRange | null; label: string }) {
+function HoverCard({ item, x, y, hyp, w, refDay, docVig, label, doc, fins }: { item: EffItem; x: number; y: number; hyp?: boolean; w: number; refDay: number; docVig: DayRange | null; label: string; doc: StudioDoc; fins: FinRecord[] }) {
+  const acq = fins.find((f) => f.kind === "aquisicao" && f.actionId === item.id)
+  const paid = acq ? paidOf(fins, acq).total : null
+  const brlv = (v: number | null | undefined) => (v == null ? "não informado" : v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }))
+  const plannedDoc = item.finance?.planned != null && (item.finance.status === "comprovado" || item.finance.status === "formalizado") ? item.finance.planned : null
+  const project = doc.projects.find((p) => p.id === item.projectId)
+  const turmas = turmasOf(doc, item)
+  const sources = item.sourceIds.map((sid) => doc.sources.find((x) => x.id === sid)?.title).filter(Boolean) as string[]
   const range = item.kind === "vigencia" && item.baseRange && !hyp ? item.baseRange : item.range
   const st = statusOf({ ...item, range }, refDay)
   const after = docVig && item.kind !== "vigencia" && item.kind !== "projeto" && item.kind !== "planejamento" && !item.dateUndetermined ? partAfter(range, docVig) : null
@@ -1561,6 +1787,20 @@ function HoverCard({ item, x, y, hyp, w, refDay, docVig, label }: { item: EffIte
           <span className="font-medium">{FIN_LABEL[item.finSituation ?? "pendente"]}</span>
         </div>
       )}
+      <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 border-t pt-1.5 text-[11.5px]">
+        <span className="text-muted-foreground">Projeto</span><span className="font-medium">{project ? `${project.name} · ${project.phase}` : "—"}</span>
+        {(item.kind === "curso" || turmas.length > 0) && <><span className="text-muted-foreground">Turma</span><span className="font-medium">{turmas.map((t) => t.name).join(", ") || "a identificar"}</span></>}
+        {!["vigencia", "projeto", "planejamento", "marco"].includes(item.kind) && (
+          <>
+            <span className="text-muted-foreground">Previsto</span><span>{plannedDoc != null ? brlv(plannedDoc) : "não documentado"}</span>
+            <span className="text-muted-foreground">Contratado</span><span>{acq ? brlv(acq.contractValue) : "sem aquisição registrada"}</span>
+            <span className="text-muted-foreground">Pago</span><span>{acq ? brlv(paid) : "—"}</span>
+            {acq?.contractValue != null && paid != null && <><span className="text-muted-foreground">Saldo</span><span>{brlv(acq.contractValue - paid)}</span></>}
+            {acq && <><span className="text-muted-foreground">Aquisição</span><span>{ACQ_STATUS_LABEL[acq.acqStatus ?? "planejado"]} · {PROOF_LABEL[acq.proof].toLowerCase()}</span></>}
+          </>
+        )}
+        <span className="text-muted-foreground">Fonte</span><span className="line-clamp-2">{sources.join("; ") || "não informada"}</span>
+      </div>
       {st.pending && <div className="mt-1.5 text-[#8a5a10]">Informação a validar na documentação.</div>}
     </div>
   )

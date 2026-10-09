@@ -11,6 +11,8 @@ import { TimelineCanvas } from "./TimelineCanvas"
 import { TopBar } from "./TopBar"
 import { TimelineControls } from "./TimelineControls"
 import { TwoTimes } from "./TwoTimes"
+import { Projeto3 } from "./Projeto3"
+import { ContextSummary } from "./ContextSummary"
 
 export function Studio() {
   const [creating, setCreating] = useState<ItemKind | null>(null)
@@ -50,10 +52,13 @@ export function Studio() {
               </div>
             ) : studioView === "twotimes" ? (
               <TwoTimes />
+            ) : studioView === "projeto3" ? (
+              <Projeto3 />
             ) : (
               <JourneyView />
             )}
           </div>
+          {studioView === "timeline" && <ContextSummary />}
           <IndicatorStrip />
         </main>
         <PropertiesPanel />

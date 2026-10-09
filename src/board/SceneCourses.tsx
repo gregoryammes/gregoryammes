@@ -35,7 +35,7 @@ const TAG: Record<Tag["tone"], string> = {
   pending: "border-[#F6C99A] bg-[#FFF3E6] text-[#9A4A08]",
   plan: "border-[#CBD5E1] bg-[#F1F4F8] text-[#475569]",
   neutral: "border-[#CBD5E1] bg-[#F1F4F8] text-[#475569]",
-  scenario: "border-[#C9B8EE] bg-[#F1ECFB] text-[#5B3BA8]",
+  scenario: "border-[#B9BEF0] bg-[#EEF0FB] text-[#3730A3]",
   warn: "border-[#E3C25C] bg-[#FFF8DB] text-[#6B4E00]",
   info: "border-[#A9D2EA] bg-[#E8F3FA] text-[#0B5F8C]",
 }

@@ -165,6 +165,143 @@ export interface Item {
   revisions?: Revision[]
   /** V8 — explicit participation of other projects in this action (never inferred). */
   funding?: Funding[]
+  /** V11 — modality row of the main timeline (classification for reading, not evidence). */
+  modality?: ModalityId
+  /** V11 — preferred sub-lane inside its modality (vertical arrangement only). */
+  modLane?: number
+  /** V11 — appearance of the block. Never touches dates, status or values. */
+  style?: BlockStyle
+  /** V11 — Projeto 3 proposal this planned record comes from. */
+  ideaId?: string | null
+}
+
+export type ModalityId = "jornada" | "robotica" | "tecnico" | "bolsas" | "operacao" | "outras"
+
+export const MODALITIES: { id: ModalityId; label: string; hint: string }[] = [
+  { id: "jornada", label: "Jornada Tecnológica", hint: "Edições da Jornada" },
+  { id: "robotica", label: "Robótica", hint: "Turmas e ofertas de Robótica" },
+  { id: "tecnico", label: "Cursos Técnicos", hint: "Técnico Piloto, Técnico 1, Técnico 2 e ofertas futuras" },
+  { id: "bolsas", label: "Bolsas e Incentivos", hint: "Bolsas dos cursos, Bolsas de Inglês e outros incentivos" },
+  { id: "operacao", label: "Operação e Infraestrutura", hint: "Equipe, escritório, infraestrutura, contratos" },
+  { id: "outras", label: "Outras ações", hint: "Ações ainda sem modalidade definida" },
+]
+
+/** Modality of a record: the explicit one, or a reading of its kind and name. */
+export function modalityOf(it: { modality?: ModalityId; kind: ItemKind; name: string; shortName?: string }): ModalityId {
+  if (it.modality) return it.modality
+  const n = `${it.shortName ?? ""} ${it.name}`.toLowerCase()
+  if (it.kind === "bolsa") return "bolsas"
+  if (it.kind === "operacao" || it.kind === "contrato") return "operacao"
+  if (n.includes("jornada")) return "jornada"
+  if (n.includes("robótica") || n.includes("robotica")) return "robotica"
+  if (it.kind === "curso" || n.includes("técnic") || n.includes("tecnic")) return "tecnico"
+  if (n.includes("infraestrutura") || n.includes("escritório") || n.includes("equipe")) return "operacao"
+  return "outras"
+}
+
+export interface BlockStyle {
+  font?: "inter" | "display" | "mono" | "serif"
+  size?: number
+  weight?: number
+  textColor?: string
+  fill?: string
+  stroke?: string
+  strokeWidth?: number
+  radius?: number
+  opacity?: number
+  preset?: string
+}
+
+/* ── V11 — Projeto 3: strategic planning ─────────────────────────────────────── */
+
+export type PillarId = "formacao" | "talentos" | "infraestrutura" | "ia" | "transversal"
+
+export const PILLARS: { id: PillarId; n: string; label: string; color: string }[] = [
+  { id: "formacao", n: "1", label: "Formação e Continuidade", color: "#19885D" },
+  { id: "talentos", n: "2", label: "Talentos e Oportunidades", color: "#127BAF" },
+  { id: "infraestrutura", n: "3", label: "Infraestrutura e Expansão", color: "#B26A1E" },
+  { id: "ia", n: "4", label: "IA, Pesquisa e Inovação", color: "#8870B5" },
+  { id: "transversal", n: "T", label: "Sustentabilidade, custos, governança e prestação de contas", color: "#475569" },
+]
+
+export type IdeaStatus = "ideia" | "em_analise" | "priorizada" | "validada" | "nao_priorizada"
+
+export const IDEA_STATUS_LABEL: Record<IdeaStatus, string> = {
+  ideia: "Ideia",
+  em_analise: "Em análise",
+  priorizada: "Priorizada",
+  validada: "Validada internamente",
+  nao_priorizada: "Não priorizada",
+}
+
+export type Priority = "alta" | "media" | "baixa"
+
+export interface Idea {
+  id: string
+  name: string
+  description?: string
+  pillar: PillarId
+  priority: Priority | null
+  status: IdeaStatus
+  owner?: string
+  start?: ISODate | null
+  end?: ISODate | null
+  /** Only when estimated; `null` = não estimado. */
+  cost?: number | null
+  dependencies?: string
+  source?: string
+  notes?: string
+  order: number
+  /** Planned record created from it in the Projeto 3 scenario. */
+  linkedItemId?: string | null
+}
+
+export type MilestoneStatus = "a_confirmar" | "previsto" | "realizado" | "adiado" | "cancelado"
+
+export const MILESTONE_LABEL: Record<MilestoneStatus, string> = {
+  a_confirmar: "A confirmar",
+  previsto: "Previsto",
+  realizado: "Realizado",
+  adiado: "Adiado",
+  cancelado: "Cancelado",
+}
+
+/** A dated reference. Reaching the date never completes it: only an explicit update does. */
+export interface StrategyMilestone {
+  id: string
+  title: string
+  date: ISODate | null
+  dateEnd?: ISODate | null
+  status: MilestoneStatus
+  owner?: string
+  notes?: string
+  sourceId?: string
+}
+
+export interface StrategyTask {
+  id: string
+  kind: "prioridade" | "pendencia" | "proxima_acao"
+  text: string
+  owner?: string
+  due?: ISODate | null
+  done: boolean
+}
+
+export interface Strategy {
+  /** Editable premise, subject to the applicable legislation. */
+  premiseYears: number
+  premiseNote: string
+  /** What the minutes record — not a decision taken by the system. */
+  encaminhamento: string
+  encaminhamentoSourceId?: string
+  leadershipValidation: { status: "pendente" | "documentada"; note: string; date?: ISODate | null }
+  meeting: { title: string; date: ISODate | null; participants: string; status: MilestoneStatus; notes: string }
+  milestones: StrategyMilestone[]
+  tasks: StrategyTask[]
+  ideas: Idea[]
+  pillarNotes: Partial<Record<PillarId, string>>
+  /** Scenario that receives planned records from validated ideas. */
+  scenarioId: string
 }
 
 /** A project that funds part of an action. The action keeps its responsible `projectId`. */
@@ -480,6 +617,8 @@ export interface StudioDoc {
   consolidations?: Consolidation[]
   /** V8 — financial / documentary components, linked to actions. */
   finRecords?: FinRecord[]
+  /** V11 — Projeto 3 strategic planning. */
+  strategy?: Strategy
   presentation: {
     layout: Record<string, BoxLayout>
     notes: SceneNote[]

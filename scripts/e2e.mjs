@@ -103,7 +103,7 @@ const expected = await page.evaluate(() => {
 })
 await page.getByRole("button", { name: "Apresentar", exact: true }).click()
 await page.waitForTimeout(900)
-await page.keyboard.press("4")
+await page.keyboard.press("3")
 await page.waitForTimeout(1200)
 const cap = await page.locator("svg text", { hasText: "hipótese de cenário" }).first().textContent()
 ok("T6 Diretoria = cenário ativo", !!cap && cap.includes(expected) && (await page.locator("text=SIMULAÇÃO").count()) > 0, `${expected}`)
@@ -235,7 +235,7 @@ await page.evaluate(() => window.__studio.getState().select([]))
 await page.getByRole("tab", { name: /Dois Tempos/ }).click()
 await page.waitForTimeout(400)
 const tt = page.locator('svg[aria-label^="Dois tempos"]')
-ok("V6-6 Dois Tempos: vigência e execução no mesmo eixo", (await tt.locator("text", { hasText: "TEMPO 1" }).count()) === 1 && (await tt.locator("text", { hasText: "TEMPO 2" }).count()) === 1 && (await tt.locator("text", { hasText: /Vigência de referência/ }).count()) === 1)
+ok("V6-6 Dois Tempos: vigência e execução no mesmo eixo", (await tt.locator("text", { hasText: "TEMPO DO INSTRUMENTO" }).count()) === 1 && (await tt.locator("text", { hasText: "TEMPO DA FORMAÇÃO" }).count()) === 1 && (await tt.locator("text", { hasText: /Vigência de referência/ }).count()) === 1)
 await page.screenshot({ path: `${OUT}/v6-06-dois-tempos.png` })
 
 // V6-7 alterar fim do Técnico 1 recalcula
@@ -258,7 +258,7 @@ await page.screenshot({ path: `${OUT}/v6-08-cenario.png` })
 // V6-10 Diretoria = cenário do editor
 await page.getByRole("button", { name: "Apresentar", exact: true }).click()
 await page.waitForTimeout(900)
-await page.keyboard.press("4")
+await page.keyboard.press("3")
 await page.waitForTimeout(1100)
 const boardHyp = await page.locator("svg text", { hasText: "hipótese de cenário" }).first().textContent()
 ok("V6-10 Diretoria segue o cenário ativo", !!boardHyp?.includes("31/12/2027") && (await page.locator("text=SIMULAÇÃO").count()) > 0, boardHyp ?? "")
@@ -293,6 +293,8 @@ const SV = (fn) => page.evaluate(fn)
 const svgText = async (re) => page.locator("#timeline-svg text", { hasText: re }).count()
 const fins8 = () => SV(() => JSON.stringify(window.__studio.getState().doc.finRecords))
 const item8 = (id) => page.evaluate((x) => JSON.stringify(window.__studio.getState().doc.items.find((i) => i.id === x)), id)
+await page.locator('select[aria-label="Exibição da timeline"]').selectOption("courses")
+await page.waitForTimeout(250)
 const mode8 = await page.locator('select[aria-label="Exibição da timeline"]').inputValue()
 
 // V8-1 Técnico 1 recolhido: uma linha principal com curso, turma, período e aquisição
@@ -348,6 +350,7 @@ ok("V8-6 P1 reexibido com cursos históricos e 'Pagamento a validar'", ["p1-cicl
 // V8-7 vínculo múltiplo: ação do P1 com participação do P2 continua visível sem P1
 await page.evaluate(() => window.__studio.getState().select(["p1-robotica"]))
 await page.waitForTimeout(250)
+await panel.getByRole("tab", { name: "Dados" }).click()
 await panel.getByRole("button", { name: "Adicionar projeto participante" }).click()
 await page.waitForTimeout(150)
 const fund7 = await SV(() => window.__studio.getState().doc.items.find((i) => i.id === "p1-robotica").funding)
@@ -413,6 +416,8 @@ await page.getByRole("button", { name: "Apresentar", exact: true }).click()
 await page.waitForTimeout(900)
 await page.keyboard.press("2")
 await page.waitForTimeout(1300)
+await page.getByRole("tab", { name: "Cursos técnicos em detalhe" }).click()
+await page.waitForTimeout(500)
 await page.getByRole("button", { name: "Curso Técnico 1" }).click()
 await page.waitForTimeout(400)
 const collapsed11 = await page.locator("text=curso recolhido").count()
@@ -429,6 +434,7 @@ await page.waitForTimeout(300)
 // V8-12 salvar, reabrir: vínculos e estados
 await page.evaluate(() => window.__studio.getState().select(["t1"]))
 await page.waitForTimeout(200)
+await panel.getByRole("tab", { name: "Dados" }).click()
 await panel.getByRole("button", { name: "Cadastrar nota fiscal" }).click()
 await page.waitForTimeout(200)
 await panel.getByLabel("Data do registro").fill("2026-04-15")
@@ -446,8 +452,214 @@ const p12 = await SV(() => {
   return { nf: nf && `${nf.start}|${nf.docNumber}|${nf.realized}`, acq: d.finRecords.find((f) => f.id === "fin-t1-aquisicao").acqStatus, t2: d.finRecords.find((f) => f.id === "fin-t2-aquisicao").steps.filter((s) => s.done).length, pay: d.finRecords.some((f) => f.id === "fin-e2e-pay"), v: d.settings.modelVersion }
 })
 const exp12 = await SV(() => window.__view.getState().expanded)
-ok("V8-12 persistência de vínculos, estados e expansão", p12.nf === "2026-04-15|123|false" && p12.acq === "integralmente_pago" && p12.t2 === 2 && p12.pay && p12.v === 8 && exp12.includes("t1"), JSON.stringify({ ...p12, exp12 }))
+ok("V8-12 persistência de vínculos, estados e expansão", p12.nf === "2026-04-15|123|false" && p12.acq === "integralmente_pago" && p12.t2 === 2 && p12.pay && p12.v === 11 && exp12.includes("t1"), JSON.stringify({ ...p12, exp12 }))
 await page.screenshot({ path: `${OUT}/v8-12-persistencia.png` })
+
+// ════════════════════════ V11 — timeline visual, edição direta, Projeto 3 ════════════════════════
+await page.evaluate(() => localStorage.clear())
+await page.reload({ waitUntil: "networkidle" })
+await page.waitForTimeout(800)
+const st11 = () => SV(() => {
+  const d = window.__studio.getState().doc
+  return { items: d.items.length, ids: d.items.map((i) => i.id).join(","), fins: d.finRecords.map((f) => f.id).join(","), turmas: d.turmas.length, past: window.__studio.getState().past.length }
+})
+const base11 = await st11()
+const t1json = () => item8("t1")
+
+// V11-1 anos e meses visíveis; zoom mensal mostra a abreviação de cada mês
+const mode11 = await page.locator('select[aria-label="Exibição da timeline"]').inputValue()
+const years11 = await page.locator("#timeline-svg text", { hasText: /^202[5-8]$/ }).count()
+await page.locator('select[aria-label="Zoom"]').selectOption("mensal")
+await page.waitForTimeout(300)
+const months11 = await page.locator("#timeline-svg text", { hasText: /^(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)$/ }).count()
+const sem11 = await page.locator("#timeline-svg text", { hasText: /º sem/ }).count()
+ok("V11-1 régua ano → semestre → mês; zoom mensal com meses legíveis", mode11 === "modalities" && years11 >= 3 && months11 >= 4 && sem11 >= 1, `${mode11} · anos ${years11} · semestres ${sem11} · meses ${months11}`)
+await page.screenshot({ path: `${OUT}/v11-01-mensal.png` })
+await page.locator('button[title^="Intervalo temporal exibido"]').click()
+await page.getByRole("button", { name: "Ciclo atual · 2025–2028" }).click()
+await page.waitForTimeout(300)
+
+// V11-2 cores dos projetos consistentes (faixa, botões e fundo)
+const c11 = await SV(() => ({
+  p1: document.querySelector('#timeline-svg rect[data-hit=item][data-id="p1-ciclo"]')?.getAttribute("fill"),
+  p2: document.querySelector('#timeline-svg rect[data-hit=item][data-id="p2-ciclo"]')?.getAttribute("fill"),
+  p3: document.querySelector('#timeline-svg rect[data-hit=item][data-id="p3-ciclo"]')?.getAttribute("stroke"),
+  p3dash: document.querySelector('#timeline-svg rect[data-hit=item][data-id="p3-ciclo"]')?.getAttribute("stroke-dasharray"),
+  tints: document.querySelectorAll("#timeline-svg [data-project-tint]").length,
+}))
+ok("V11-2 P1 verde, P2 azul, P3 roxo tracejado, com fundo suave por projeto", c11.p1 === "#19885D" && c11.p2 === "#127BAF" && c11.p3 === "#8870B5" && !!c11.p3dash && c11.tints >= 3, JSON.stringify(c11))
+await page.screenshot({ path: `${OUT}/v11-02-modalidades.png` })
+
+// V11-3 modalidades em poucas linhas principais
+const modNames = ["Jornada Tecnológica", "Robótica", "Cursos Técnicos", "Bolsas e Incentivos", "Operação e Infraestrutura"]
+const modFound = []
+for (const n of modNames) modFound.push((await page.locator("#timeline-svg [data-hit=m-collapse] text", { hasText: n }).count()) === 1)
+const tecLanes = await SV(() => [...document.querySelectorAll("#timeline-svg [data-hit=m-collapse] text")].map((t) => t.textContent).join("|"))
+ok("V11-3 cinco modalidades, edições lado a lado", modFound.every(Boolean) && /Cursos Técnicos\|3 registros · 2 linhas/.test(tecLanes), tecLanes.slice(0, 160))
+
+// V11-4 expandir o curso mostra bolsas e componentes
+await page.locator('#timeline-svg [data-hit=h-toggle][data-id=t1]').click()
+await page.waitForTimeout(250)
+ok("V11-4 Técnico 1 expandido: aquisição, bolsas, NF, materiais", (await svgText(/^Técnico 1 › Aquisição/)) === 1 && (await svgText("Notas fiscais e comprovação")) === 1 && (await svgText("Materiais e recursos")) === 1 && (await page.locator('#timeline-svg [data-hit=item][data-id="t1-bolsas"]').count()) >= 2)
+await page.screenshot({ path: `${OUT}/v11-04-expandido.png` })
+await page.locator('#timeline-svg [data-hit=h-toggle][data-id=t1]').click()
+await page.waitForTimeout(200)
+
+// V11-5 arrastar a barra altera as datas, mantendo a duração
+const t1a = JSON.parse(await t1json())
+await drag('#timeline-svg rect[data-hit=item][data-id=t1]', 110)
+const t1b = JSON.parse(await t1json())
+const dur = (t) => (Date.parse(t.end) - Date.parse(t.start)) / 864e5
+ok("V11-5 arrastar altera datas (duração constante)", t1b.start !== t1a.start && dur(t1b) === dur(t1a), `${t1a.start} → ${t1b.start}`)
+await page.keyboard.press("Control+z")
+await page.waitForTimeout(150)
+await page.evaluate(() => window.__studio.getState().select([]))
+
+// V11-6 duplo clique edita o rótulo sobre o bloco
+await page.locator('#timeline-svg rect[data-hit=item][data-id=t1]').dblclick()
+await page.waitForTimeout(150)
+const inl = page.getByLabel("Rótulo curto do bloco")
+await inl.fill("Técnico 1 (rótulo)")
+await inl.press("Enter")
+await page.waitForTimeout(200)
+const label6 = await SV(() => window.__studio.getState().doc.items.find((i) => i.id === "t1").shortName)
+ok("V11-6 duplo clique altera o rótulo", label6 === "Técnico 1 (rótulo)" && (await svgText(/Técnico 1 \(rótulo\)/)) >= 1, label6)
+await page.keyboard.press("Control+z")
+await page.waitForTimeout(150)
+// context menu
+await page.locator('#timeline-svg rect[data-hit=item][data-id=t2]').click({ button: "right" })
+await page.waitForTimeout(150)
+const menuOk = (await page.getByRole("menu").getByRole("menuitem").count()) >= 6
+await page.keyboard.press("Escape")
+ok("V11-6 menu contextual (duplicar, ocultar, bloquear, excluir, editar)", menuOk)
+
+// V11-7 Design muda cor, fonte e contorno sem alterar dados administrativos
+await page.evaluate(() => window.__studio.getState().select(["t1"]))
+await page.waitForTimeout(200)
+const t1before7 = await t1json()
+const fins7 = await fins8()
+await panel.getByRole("tab", { name: "Design" }).click()
+await panel.getByRole("button", { name: "Estilo Contorno" }).click()
+await panel.getByLabel("Fonte", { exact: true }).selectOption("serif")
+await panel.getByLabel("Peso da fonte").selectOption("800")
+await page.waitForTimeout(200)
+const style7 = await SV(() => window.__studio.getState().doc.items.find((i) => i.id === "t1").style)
+const t1after7 = JSON.parse(await t1json())
+const t1b7 = JSON.parse(t1before7)
+const rect7 = await SV(() => { const r = document.querySelector('#timeline-svg rect[data-hit=item][data-id=t1]'); return { fill: r.getAttribute("fill"), sw: r.getAttribute("stroke-width") } })
+ok("V11-7 Design: aparência muda, datas/valores/vínculos não", style7?.font === "serif" && style7?.weight === 800 && style7?.fill === "#FFFFFF" && rect7.fill === "#FFFFFF" && rect7.sw === "2" &&
+  t1after7.start === t1b7.start && t1after7.end === t1b7.end && JSON.stringify(t1after7.finance) === JSON.stringify(t1b7.finance) && JSON.stringify(t1after7.turmaIds) === JSON.stringify(t1b7.turmaIds) && (await fins8()) === fins7, JSON.stringify(style7))
+await page.screenshot({ path: `${OUT}/v11-07-design.png` })
+
+// V11-8 Dados: valores, datas e vínculos
+await panel.getByRole("tab", { name: "Dados" }).click()
+await panel.getByRole("button", { name: /Abrir aquisição e etapas/ }).click()
+await page.waitForTimeout(200)
+await panel.getByLabel("Valor contratado").fill("5000")
+await panel.getByLabel("Valor contratado").blur()
+await panel.getByLabel("Data de contratação").fill("2026-01-20")
+await panel.getByLabel("Data de contratação").blur()
+await page.waitForTimeout(200)
+await page.evaluate(() => window.__studio.getState().select(["t1"]))
+await page.waitForTimeout(150)
+await panel.getByRole("tab", { name: "Dados" }).click()
+await panel.getByRole("button", { name: "Adicionar projeto participante" }).click()
+await page.waitForTimeout(150)
+const d8 = await SV(() => { const d = window.__studio.getState().doc; const a = d.finRecords.find((f) => f.id === "fin-t1-aquisicao"); return { v: a.contractValue, dt: a.contractDate, fund: d.items.find((i) => i.id === "t1").funding } })
+ok("V11-8 Dados: valor contratado, data e participação de projeto editados", d8.v === 5000 && d8.dt === "2026-01-20" && d8.fund?.length === 1, JSON.stringify(d8))
+await page.keyboard.press("Control+z")
+await page.waitForTimeout(150)
+await panel.getByRole("tab", { name: "Conteúdo" }).click()
+await page.evaluate(() => window.__studio.getState().select([]))
+
+// V11-9 valores sob demanda (colunas à direita) e hover com período, turma, projeto, fonte
+const finBefore = await page.getByRole("region", { name: "Resumo financeiro" }).count()
+await page.getByRole("button", { name: "Valores", exact: true }).click()
+await page.waitForTimeout(300)
+const finRegion = page.getByRole("region", { name: "Resumo financeiro" })
+const finTxt = (await finRegion.count()) ? await finRegion.innerText() : ""
+await page.locator('#timeline-svg rect[data-hit=item][data-id=t1]').hover()
+await page.waitForTimeout(300)
+const hoverTxt = await page.locator("div.pointer-events-none.absolute.z-30.w-\\[290px\\]").first().innerText({ timeout: 3000 }).catch(() => "")
+ok("V11-9 resumo financeiro sob demanda + hover com valores e fonte", finBefore === 0 && /Contratado/i.test(finTxt) && /R\$\s5\.000/.test(finTxt) && /Pago/i.test(finTxt) && hoverTxt.includes("Projeto") && hoverTxt.includes("Turma") && hoverTxt.includes("Fonte") && hoverTxt.includes("Contratado"), `${finTxt.replace(/\n/g, " ").slice(0, 80)} | hover: ${hoverTxt.replace(/\n/g, " ").slice(0, 160)}`)
+await page.screenshot({ path: `${OUT}/v11-09-valores.png` })
+await page.getByRole("button", { name: "Valores", exact: true }).click()
+
+// V11-10 Explicar vigência: dois trilhos, mesma régua, etiqueta da execução posterior
+await page.getByRole("button", { name: /Explicar vigência/ }).first().click()
+await page.waitForTimeout(500)
+const step1 = await page.locator("text=Etapa 1 de 7").count()
+for (let i = 0; i < 3; i++) { await page.keyboard.press("ArrowRight"); await page.waitForTimeout(200) }
+const tt11 = page.locator('svg[aria-label^="Dois tempos"]')
+ok("V11-10 Explicar vigência: tempo do instrumento × tempo da formação", step1 === 1 && (await tt11.locator("text", { hasText: "TEMPO DO INSTRUMENTO" }).count()) === 1 && (await tt11.locator("text", { hasText: "TEMPO DA FORMAÇÃO" }).count()) === 1 &&
+  (await page.locator("text=/Execução posterior à vigência — situação financeira a verificar/").count()) >= 1 && (await page.locator("text=/registrada como paga · comprovação pendente/").count()) >= 1)
+await page.screenshot({ path: `${OUT}/v11-10-dois-tempos.png` })
+await page.keyboard.press("Escape")
+
+// V11-11 Projeto 3: quadro estratégico editável
+await page.getByRole("tab", { name: /Projeto 3/ }).click()
+await page.waitForTimeout(400)
+const pillars = await page.locator('section[aria-label^="Pilar "]').count()
+await page.locator('[data-idea="idea-automacao"]').dragTo(page.locator('section[aria-label="Pilar Formação e Continuidade"]'))
+await page.waitForTimeout(250)
+const pil = await SV(() => window.__studio.getState().doc.strategy.ideas.find((i) => i.id === "idea-automacao").pillar)
+await page.locator('[data-idea="idea-formacao-em-ia"] button').first().click()
+await page.getByLabel("Situação da proposta").selectOption("validada")
+await page.waitForTimeout(150)
+await page.getByRole("button", { name: /Adicionar ao cenário do Projeto 3/ }).click()
+await page.waitForTimeout(250)
+await page.getByLabel("Situação: Validação interna prevista").selectOption("realizado")
+await page.waitForTimeout(150)
+const p11 = await SV(() => { const d = window.__studio.getState().doc; return { added: d.scenarios.find((s) => s.id === d.strategy.scenarioId).added.map((i) => `${i.projectId}:${i.certainty}:${i.ideaId}`), base: d.items.length, ms: d.strategy.milestones[0].status, val: d.strategy.leadershipValidation.status } })
+ok("V11-11 Projeto 3: arrastar entre pilares, editar, adicionar ao cenário, atualizar marco", pillars === 5 && pil === "formacao" && p11.added.length === 1 && p11.added[0] === "p3:planejado:idea-formacao-em-ia" && p11.base === base11.items && p11.ms === "realizado" && p11.val === "pendente", JSON.stringify({ pil, ...p11 }))
+await page.screenshot({ path: `${OUT}/v11-11-projeto3.png` })
+await page.getByRole("button", { name: "Modo reunião" }).click()
+await page.waitForTimeout(250)
+const meet = (await page.getByRole("dialog", { name: "Modo reunião" }).count()) === 1 && (await page.locator("text=/Presença e aprovação não presumidas/").count()) >= 1
+await page.screenshot({ path: `${OUT}/v11-11b-reuniao.png` })
+await page.getByRole("button", { name: "Encerrar reunião" }).click()
+ok("V11-11 modo reunião com os pilares, sem presumir presença ou aprovação", meet)
+
+// V11-12 Modo Diretoria: cinco cenas, sem elementos administrativos
+await page.getByRole("button", { name: "Apresentar", exact: true }).click()
+await page.waitForTimeout(800)
+const titles = ["Evolução dos Projetos", "Jornada Educacional", "Dois Tempos", "Decisão de Continuidade", "Futuro do SKA Tech Hub"]
+const seen = []
+for (let i = 0; i < 5; i++) {
+  await page.keyboard.press(String(i + 1))
+  await page.waitForTimeout(1100)
+  const eyebrow = await page.locator("text=/^0" + (i + 1) + "$/").count()
+  seen.push(eyebrow >= 1 && (await page.locator("aside[aria-label=Propriedades]").count()) === 0)
+  await page.screenshot({ path: `${OUT}/v11-12-cena${i + 1}.png` })
+}
+const sceneBtns = []
+for (const t of titles) sceneBtns.push((await page.getByRole("button", { name: new RegExp(t) }).count()) >= 1)
+await page.getByRole("button", { name: "Revelar pilar" }).click()
+await page.waitForTimeout(300)
+ok("V11-12 cinco cenas navegáveis com dados do sistema", seen.every(Boolean) && sceneBtns.every(Boolean) && (await page.locator("text=Formação em IA").count()) >= 0, JSON.stringify({ seen, sceneBtns }))
+
+// V11-13 comparação de cenários preserva a linha de base
+await page.keyboard.press("4")
+await page.waitForTimeout(1100)
+await page.locator('select[aria-label="Cenário apresentado"]').selectOption("alt-prorrogacao")
+await page.waitForTimeout(500)
+const cmp = await SV(() => ({ base: window.__studio.getState().doc.items.find((i) => i.id === "p2-vigencia").end, over: window.__studio.getState().doc.scenarios.find((s) => s.id === "alt-prorrogacao").overrides["p2-vigencia"]?.end }))
+const cards13 = (await page.locator("text=/Cenário A — Prorrogação/").count()) >= 1 && (await page.locator("text=/Cenário B — Estruturação do Projeto 3/").count()) >= 1 && (await page.locator("text=/não substituem a linha de base/").count()) >= 1
+ok("V11-13 prorrogação × Projeto 3 como hipóteses; base documental intacta", cmp.base === "2027-06-30" && cmp.over === "2027-12-31" && cards13 && (await page.locator("text=SIMULAÇÃO").count()) > 0, JSON.stringify(cmp))
+await page.screenshot({ path: `${OUT}/v11-13-decisao.png` })
+await page.locator('select[aria-label="Cenário apresentado"]').selectOption("baseline")
+await page.keyboard.press("Escape")
+await page.getByRole("button", { name: /Estúdio/ }).click().catch(() => {})
+await page.waitForTimeout(300)
+
+// V11-14 dados consistentes após a refatoração e após salvar/reabrir
+await page.keyboard.press("Control+s")
+await page.waitForTimeout(300)
+await page.reload({ waitUntil: "networkidle" })
+await page.waitForTimeout(700)
+const after14 = await st11()
+const keep14 = await SV(() => { const d = window.__studio.getState().doc; return { cv: d.finRecords.find((f) => f.id === "fin-t1-aquisicao").contractValue, style: d.items.find((i) => i.id === "t1").style?.font, pil: d.strategy.ideas.find((i) => i.id === "idea-automacao").pillar, added: d.scenarios.find((s) => s.id === d.strategy.scenarioId).added.length, v: d.settings.modelVersion, vig: d.items.find((i) => i.id === "p2-vigencia").end } })
+ok("V11-14 registros, vínculos, estilo e Projeto 3 preservados após salvar e reabrir", after14.ids === base11.ids && after14.fins === base11.fins && after14.turmas === base11.turmas && keep14.cv === 5000 && keep14.style === "serif" && keep14.pil === "formacao" && keep14.added === 1 && keep14.v === 11 && keep14.vig === "2027-06-30", JSON.stringify(keep14))
 
 ok("sem erros de página", errors.length === 0, errors.slice(0, 3).join(" | "))
 await browser.close()

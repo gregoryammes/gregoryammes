@@ -49,7 +49,7 @@ export function Scene1() {
 
   return (
     <div className="absolute inset-0" onClick={() => setFocus(null)}>
-      <SceneTitle scene={0} eyebrow="A evolução do SKA Tech Hub" title="Uma jornada construída em diferentes ciclos" size={62} sub="Projetos sucessivos que se sobrepõem e se conectam. Clique em um ciclo para destacá-lo." />
+      <SceneTitle scene={0} eyebrow="Evolução dos Projetos" title="Uma jornada construída em diferentes ciclos" size={62} sub="Projetos sucessivos que se sobrepõem e se conectam. Clique em um ciclo para destacá-lo." />
 
       <svg className="pointer-events-none absolute inset-0" width={1920} height={1080} aria-hidden="true">
         <StageAxis d0={d0} d1={d1} X={X} y={AXIS_Y} months={false} />

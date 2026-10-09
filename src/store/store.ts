@@ -159,7 +159,7 @@ function mapScenario(d: StudioDoc, id: string, fn: (s: Scenario) => Scenario): S
 }
 
 /** Writes a patch to the right place: the baseline record, a scenario override, or a scenario-only item. */
-const VISUAL_KEYS = new Set(["lane", "layer", "color", "detail", "turmaIds", "consolidation", "partner", "shortName", "courseId", "funding"])
+const VISUAL_KEYS = new Set(["lane", "layer", "color", "detail", "turmaIds", "consolidation", "partner", "shortName", "courseId", "funding", "style", "modality", "modLane"])
 
 /**
  * Composition fields (row order, group, colour) belong to the record's presentation, not to its

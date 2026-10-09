@@ -7,11 +7,16 @@ import { summarizeScenario } from "@/lib/analysis"
 import { C } from "@/lib/visual"
 import { docVigRange, offeringLabel, shortNameOf } from "@/lib/v6"
 import { acqOf, acqTag, finRecordsIn } from "@/lib/finance"
-import { FIN_LABEL, type Decision } from "@/data/types"
+import { FIN_LABEL, MILESTONE_LABEL, type Decision } from "@/data/types"
+import { seedStrategy } from "@/data/v11"
 import { useStudio } from "@/store/store"
 import { useAnalysis } from "@/store/hooks"
 import { Movable, SceneNotes, SceneTitle } from "./Stage"
 import { stageScale } from "./common"
+
+const PATH_NOTES: Record<string, string> = {
+  "alt-prorrogacao": "Extensão temporal hipotética · depende de análise jurídica e administrativa · recursos a verificar · obrigações existentes continuam.",
+}
 
 const NEXT: Record<Decision["status"], Decision["status"]> = { pendente: "em_analise", em_analise: "decidido", decidido: "pendente" }
 const STATUS_LABEL: Record<Decision["status"], string> = { pendente: "Pendente", em_analise: "Em análise", decidido: "Decidido" }
@@ -29,6 +34,7 @@ export function Scene4() {
   const setScenario = useStudio((s) => s.setScenario)
   const { items } = useAnalysis()
   const [closing, setClosing] = useState(false)
+  const strategy = doc.strategy ?? seedStrategy()
   const summaries = useMemo(() => doc.scenarios.map((s) => summarizeScenario(doc, s.id, doc.presentation.highlightCourseIds[0] ?? "t1")), [doc])
   const vig = docVigRange(doc)
   const d0 = dayOf(2025, 1)
@@ -56,7 +62,7 @@ export function Scene4() {
 
   return (
     <div className="absolute inset-0">
-      <SceneTitle scene={3} n={5} eyebrow="Continuidade e decisões" title="Como garantir a continuidade da jornada?" size={60} />
+      <SceneTitle scene={3} n={4} eyebrow="Decisão de continuidade" title="Prorrogar o Projeto 2 ou estruturar o Projeto 3?" size={56} />
 
       <Movable k="s3:continua" x={120} y={226} w={520}>
         <div className="space-y-6">
@@ -96,24 +102,43 @@ export function Scene4() {
         </div>
       </Movable>
 
-      <Movable k="s3:decisions" x={700} y={226} w={520}>
-        <div className="space-y-6">
+      <Movable k="s3:fin" x={120} y={690} w={520}>
           <div>
             <H tone="after">Questões financeiras a validar</H>
             <ul className="mt-2 space-y-1.5 text-[17px] leading-snug text-[#18324A]">
               {acquisitions.map(({ c, a }) => (
                 <li key={`acq-${c.id}`}><b>{shortNameOf(c)}</b>: <span className="text-[#64748B]">{acqTag(a).label === "Pago" ? "aquisição registrada como paga" : acqTag(a).label.toLowerCase()}{a?.proof === "pendente" ? " · comprovação pendente" : ""}</span></li>
               ))}
-              {finQuestions.map((i) => (
+              {finQuestions.filter((i) => !acquisitions.some((x) => x.c.id === i.id && x.a)).slice(0, Math.max(0, 4 - acquisitions.length)).map((i) => (
                 <li key={i.id}><b>{shortNameOf(i)}</b>: <span className="text-[#64748B]">{FIN_LABEL[i.finSituation ?? "pendente"]}</span></li>
               ))}
               {finQuestions.length === 0 && <li className="text-[#64748B]">Nenhuma questão financeira registrada.</li>}
             </ul>
           </div>
+      </Movable>
+
+      <Movable k="s3:decisions" x={700} y={226} w={520}>
+        <div className="space-y-6">
+          <div>
+            <H tone="navy">Encaminhamento registrado</H>
+            <p className="mt-2 text-[17px] leading-snug text-[#18324A]">{strategy.encaminhamento}</p>
+            <p className="mt-1.5 text-[15px] text-[#64748B]">
+              Validação interna da liderança: <b className={strategy.leadershipValidation.status === "pendente" ? "text-[#9A4A08]" : "text-[#1C6B4B]"}>{strategy.leadershipValidation.status === "pendente" ? "pendente — etapa própria" : "concluída e documentada"}</b>
+            </p>
+            <ul className="mt-2 space-y-1 text-[16px] text-[#18324A]">
+              {strategy.milestones.map((ms) => (
+                <li key={ms.id} className="flex gap-3">
+                  <span className="w-[86px] shrink-0 font-mono text-[15px]">{ms.date ? fmtDate(ms.date).slice(0, 5) : "—"}{ms.dateEnd ? `–${fmtDate(ms.dateEnd).slice(0, 2)}` : ""}</span>
+                  <span className="flex-1">{ms.title}</span>
+                  <span className="shrink-0 text-[14px] font-semibold text-[#64748B]">{MILESTONE_LABEL[ms.status]}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
           <div>
             <H tone="navy">O que precisa ser decidido</H>
             <ul className="mt-2 divide-y divide-[#DFE6EE] border-y border-[#DFE6EE]">
-              {doc.decisions.map((d) => (
+              {[...doc.decisions].sort((a, b) => Number(a.status === "decidido") - Number(b.status === "decidido")).slice(0, 4).map((d) => (
                 <li key={d.id}>
                   <button onClick={() => cycleDecision(d)} className="flex w-full items-start gap-3 py-2 text-left hover:bg-[#F6F8FB]" title="Clique para atualizar o status">
                     <span className={cn("mt-0.5 w-[100px] shrink-0 rounded-full border-2 py-0.5 text-center text-[13px] font-bold",
@@ -131,9 +156,9 @@ export function Scene4() {
 
       <Movable k="s3:compare" x={1280} y={226} w={520}>
         <div>
-          <H tone="blue">Cenários do Projeto 3</H>
+          <H tone="blue">Prorrogação × Projeto 3</H>
           <div className="mt-3 space-y-2.5">
-            {summaries.map((s) => {
+            {summaries.filter((s) => ["baseline", "alt-prorrogacao", strategy.scenarioId].includes(s.scenario.id)).map((s) => {
               const active = s.scenario.id === scenarioId
               const base = s.scenario.kind === "baseline"
               const simulated = s.vigEnd !== baseVigEnd
@@ -156,11 +181,13 @@ export function Scene4() {
                     <span className={s.t1After ? "font-semibold text-[#9A4A08]" : "text-[#64748B]"}>{s.t1After ? `Técnico 1 +${s.t1After.months} m` : "Técnico 1 dentro"}</span> ·{" "}
                     <span className="text-[#64748B]">P3 de {s.p3 ? fmtDate(s.p3.start, "month") : "—"}</span>
                   </div>
+                  {PATH_NOTES[s.scenario.id] && <div className="mt-1 text-[13.5px] leading-snug text-[#64748B]">{PATH_NOTES[s.scenario.id]}</div>}
+                  {s.scenario.id === strategy.scenarioId && <div className="mt-1 text-[13.5px] leading-snug text-[#64748B]">Novo planejamento e orçamento · continuidade educacional · revisão operacional · pesquisa e inovação · requer aprovação e formalização.</div>}
                 </button>
               )
             })}
           </div>
-          <p className="mt-2 text-[14px] leading-snug text-[#64748B]">Impacto temporal calculado. Nenhum cenário presume aprovação jurídica ou orçamentária; o Projeto 3 segue em modelagem.</p>
+          <p className="mt-2 text-[14px] leading-snug text-[#64748B]">As hipóteses não substituem a linha de base documental. Nenhum cenário presume aprovação jurídica ou orçamentária.</p>
         </div>
       </Movable>
 
