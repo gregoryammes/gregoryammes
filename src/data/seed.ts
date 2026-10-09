@@ -1,4 +1,5 @@
 import type { Item, StudioDoc } from "./types"
+import { applyV6 } from "./v6"
 
 /**
  * Seed data. Everything here comes from the briefing text ("Prompt Master V3"); no documents were
@@ -47,6 +48,10 @@ const p1Action = (id: string, name: string, lane: number, layer: Item["layer"] =
   })
 
 export function createSeed(): StudioDoc {
+  return applyV6(createSeedV5())
+}
+
+function createSeedV5(): StudioDoc {
   const items: Item[] = [
     // ── Projetos ──────────────────────────────────────────────────────────────
     base({

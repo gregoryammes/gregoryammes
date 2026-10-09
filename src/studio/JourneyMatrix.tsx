@@ -166,8 +166,8 @@ export function JourneyMatrix({ size = "studio" }: { size?: "studio" | "stage" }
             {/* Vigência end runs through the whole matrix */}
             {j.docVig && j.docVig.end > y0 && j.docVig.end < y1 && (
               <div className="pointer-events-none absolute inset-y-0" style={{ left: `calc(${labelW}px + (100% - ${labelW}px) * ${(j.docVig.end - y0) / (y1 - y0)})` }}>
-                <div className="h-full w-[2.5px] bg-destructive/75" />
-                <div className={cn("absolute top-full mt-1 font-bold whitespace-nowrap text-destructive", big ? "text-[17px]" : "text-[11.5px]")}>↑ {fmtDate(fromDay(j.docVig.end - 1))} · fim da vigência de referência</div>
+                <div className="h-full w-[2.5px] bg-[#C2410C]/80" />
+                <div className={cn("absolute top-full mt-1 font-bold whitespace-nowrap text-[#C2410C]", big ? "text-[17px]" : "text-[11.5px]")}>↑ {fmtDate(fromDay(j.docVig.end - 1))} · fim da vigência de referência</div>
               </div>
             )}
           </div>
@@ -176,7 +176,7 @@ export function JourneyMatrix({ size = "studio" }: { size?: "studio" | "stage" }
             <span className="flex items-center gap-1.5"><span className="h-3 w-6 rounded-sm border-[1.5px] border-dashed border-navy bg-white" /> cenário / planejamento</span>
             <span className="flex items-center gap-1.5"><span className="h-3 w-6 rounded-sm border border-dotted border-[#8796A8] bg-[#F3F6FA]" /> período geral, data a validar</span>
             <span className="flex items-center gap-1.5"><span className="h-3 w-6 rounded-sm border border-dashed border-[#C9D3DE] bg-white" /> sem definição</span>
-            <span className="flex items-center gap-1.5"><span className="h-3 w-6 rounded-sm bg-[#C83C3C]" /> trecho após a vigência</span>
+            <span className="flex items-center gap-1.5"><span className="h-3 w-6 rounded-sm bg-[#EE7F12]" /> trecho após a vigência</span>
             {!big && <span>Não presume que todos os estudantes percorram todas as etapas.</span>}
           </div>
         </div>
@@ -210,7 +210,7 @@ function CellBox({ cell, big, color, selected }: { cell: Cell; big: boolean; col
       style={{ background: solid ? color : undefined, borderColor: cell.state === "cenario" ? color : undefined, color: cell.state === "cenario" ? color : undefined }}
     >
       {cell.afterFrom != null && (
-        <span className="absolute inset-y-0 right-0 bg-[#C83C3C]" style={{ left: `${cell.afterFrom * 100}%`, opacity: solid ? 1 : 0.18 }} />
+        <span className="absolute inset-y-0 right-0 bg-[#EE7F12]" style={{ left: `${cell.afterFrom * 100}%`, opacity: solid ? 1 : 0.18 }} />
       )}
       <span className={cn("relative block truncate font-semibold", big ? "text-[18px]" : "text-[11.5px]")}>{stage.short}</span>
       <span className={cn("relative block truncate", big ? "text-[15px]" : "text-[10.5px]", solid ? "text-white/85" : "")}>

@@ -4,6 +4,7 @@ import { Button, Chip } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { toDay } from "@/lib/dates"
 import { itemColor, statusOf } from "@/lib/visual"
+import { turmasOf } from "@/lib/v6"
 import { KIND_LABEL, type ItemKind } from "@/data/types"
 import { useStudio } from "@/store/store"
 import { useEffectiveItems, useProjectColor } from "@/store/hooks"
@@ -85,7 +86,9 @@ function Elements({ onCreate }: { onCreate: (kind: ItemKind) => void }) {
               <div className="pb-1.5">
                 {list.map((it) => {
                   const s = statusOf(it, ref)
+                  const ts = it.kind === "curso" ? turmasOf(doc, it) : []
                   return (
+                    <div key={it.id}>
                     <button
                       key={it.id}
                       title={`${it.name} · ${s.label}`}
@@ -101,6 +104,20 @@ function Elements({ onCreate }: { onCreate: (kind: ItemKind) => void }) {
                       {it.changed && <span className="shrink-0 text-[9.5px] font-bold text-navy">CEN.</span>}
                       {it.locked && <Lock className="size-3 shrink-0 text-muted-foreground" />}
                     </button>
+                    {it.kind === "curso" && (
+                      <div className="ml-7 border-l pl-2">
+                        {ts.length === 0 ? (
+                          <span className="block py-0.5 text-[11.5px] text-muted-foreground italic">Turma a identificar</span>
+                        ) : (
+                          ts.map((t) => (
+                            <button key={t.id} onClick={() => st.select([it.id])} className="block w-full truncate py-0.5 text-left text-[11.5px] text-muted-foreground hover:text-foreground" title={`${t.name} · ${t.status === "hipotese" ? "cenário" : "registrada"}`}>
+                              {t.name}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                    </div>
                   )
                 })}
                 {g.decisions &&

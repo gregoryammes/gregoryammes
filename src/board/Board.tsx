@@ -14,10 +14,10 @@ import { Logo } from "@/studio/TopBar"
 import { confirmAction } from "@/components/Confirm"
 
 const SCENES = [
-  { title: "Evolução", C: Scene1 },
-  { title: "Jornada do aluno", C: Scene2 },
-  { title: "Desafio da vigência", C: Scene3 },
-  { title: "Decisões", C: Scene4 },
+  { title: "Projetos", C: Scene1 },
+  { title: "Jornada formativa", C: Scene2 },
+  { title: "Dois tempos", C: Scene3 },
+  { title: "Continuidade", C: Scene4 },
 ]
 
 export default function Board() {

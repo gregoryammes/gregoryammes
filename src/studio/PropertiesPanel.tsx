@@ -9,6 +9,8 @@ import { useStudio } from "@/store/store"
 import { confirmAction } from "@/components/Confirm"
 import { useAnalysis, useActiveScenario } from "@/store/hooks"
 import { useView } from "@/store/view"
+import { docVigRange } from "@/lib/v6"
+import { BolsaLinksSection, ConsolidationProps, CourseTurmaSection, ProjectSummary, RevisionsSection, SituationChips } from "./PropertiesV6"
 
 const CERTAINTIES = Object.keys(CERTAINTY_LABEL) as Certainty[]
 
@@ -24,16 +26,18 @@ export function PropertiesPanel() {
   const sel = items.filter((i) => selection.includes(i.id))
   const ann = doc.annotations.find((a) => a.id === selAnn)
   if (!ann && sel.length === 0) return null
+  // A whole consolidated row selected → the programme view.
+  const consKey = sel.length > 1 && sel[0].consolidation && sel.every((x) => x.consolidation === sel[0].consolidation) && items.filter((i) => i.consolidation === sel[0].consolidation).length === sel.length ? sel[0].consolidation : null
   const close = () => useStudio.setState({ selection: [], selectedAnnotation: null })
   return (
     <aside aria-label="Propriedades" className="scroll-thin absolute inset-y-0 right-0 z-30 flex w-[312px] flex-col overflow-y-auto border-l bg-white shadow-[-12px_0_32px_-24px_rgba(15,40,70,0.35)] lg:static lg:shadow-none">
       <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-white px-4 py-2.5">
-        <span className="text-[12px] font-semibold text-muted-foreground">{ann ? "Anotação" : sel.length > 1 ? `${sel.length} selecionados` : "Propriedades"}</span>
+        <span className="text-[12px] font-semibold text-muted-foreground">{ann ? "Anotação" : consKey ? "Programa" : sel.length > 1 ? `${sel.length} selecionados` : "Propriedades"}</span>
         <button aria-label="Fechar painel" title="Fechar (Esc)" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={close}>
           <X className="size-4" />
         </button>
       </div>
-      {ann ? <AnnotationProps a={ann} items={items} /> : sel.length === 1 ? <ItemProps key={sel[0].id} it={sel[0]} /> : <Multi items={sel} />}
+      {ann ? <AnnotationProps a={ann} items={items} /> : consKey ? <ConsolidationProps consKey={consKey} /> : sel.length === 1 ? <ItemProps key={sel[0].id} it={sel[0]} /> : <Multi items={sel} />}
     </aside>
   )
 }
@@ -114,13 +118,13 @@ export function DateRangeFields({ it }: { it: EffItem }) {
     <>
       <div className="grid grid-cols-2 gap-2">
         <Field label={isMarco ? "Data" : "Início"}>
-          <input type="date" className="field" value={start} disabled={it.locked}
+          <input type="date" aria-label="Início do período" className="field" value={start} disabled={it.locked}
             onChange={(e) => { setStart(e.target.value); if (isMarco) setEnd(e.target.value) }}
             onBlur={() => commit(start, isMarco ? start : end)} />
         </Field>
         {!isMarco && (
           <Field label="Fim (inclusivo)">
-            <input type="date" className="field" value={end} disabled={it.locked} onChange={(e) => setEnd(e.target.value)} onBlur={() => commit(start, end)} />
+            <input type="date" aria-label="Fim do período" className="field" value={end} disabled={it.locked} onChange={(e) => setEnd(e.target.value)} onBlur={() => commit(start, end)} />
           </Field>
         )}
       </div>
@@ -155,7 +159,7 @@ function ItemProps({ it }: { it: EffItem }) {
   const ref = toDay(doc.settings.referenceDate)
   const status = statusOf(it, ref)
   const vig = items.find((i) => i.kind === "vigencia" && i.projectId === (it.projectId ?? "p2")) ?? items.find((i) => i.kind === "vigencia")
-  const docVig = vig ? (vig.baseRange ?? vig.range) : null
+  const docVig = docVigRange(doc, it.projectId ?? "p2") ?? (vig ? (vig.baseRange ?? vig.range) : null)
   const after = docVig && !it.dateUndetermined && !["vigencia", "projeto", "planejamento"].includes(it.kind) ? partAfter(it.range, docVig) : null
   const afterHyp = after && vig?.baseRange ? partAfter(it.range, vig.range) : null
   const showFinance = !!it.finance || FINANCE_KINDS.includes(it.kind)
@@ -196,11 +200,15 @@ function ItemProps({ it }: { it: EffItem }) {
         </div>
       </Section>
 
+      {it.kind === "projeto" && <ProjectSummary it={it} />}
+      {it.kind === "curso" && <CourseTurmaSection it={it} />}
+      {it.kind === "bolsa" && <BolsaLinksSection it={it} />}
+
       <Section title="Período">
         <DateRangeFields it={it} />
         {after && (
-          <div className="rounded-md border border-destructive/30 bg-[#FDF2F2] p-2.5 text-[12px] leading-snug text-foreground">
-            <div className="font-semibold text-destructive">{calendarMonthsTouched(after)} meses-calendário após a vigência de referência</div>
+          <div className="rounded-md border border-[#EE7F12]/40 bg-[#FFF5EA] p-2.5 text-[12px] leading-snug text-foreground">
+            <div className="font-semibold text-[#9A4A08]">{calendarMonthsTouched(after)} meses-calendário após a vigência de referência</div>
             {fmtMonthsSpan(after)} · {lengthDays(after)} dias.
             {vig?.baseRange && <> No cenário ativo: {afterHyp ? `${calendarMonthsTouched(afterHyp)} meses após ${fmtDate(fromDay(vig.range.end - 1))}` : "dentro da vigência simulada"}.</>}
             <div className="mt-1 text-[11px] text-muted-foreground">Fato de calendário: não afirma ausência de pagamento nem de cobertura.</div>
@@ -260,6 +268,7 @@ function ItemProps({ it }: { it: EffItem }) {
       </Section>
 
       <Section title="Situação">
+        {!["projeto", "vigencia", "planejamento", "marco"].includes(it.kind) && <SituationChips it={it} />}
         <div className="grid grid-cols-2 gap-2">
           <Field label="Execução / evidência">
             <select className="field" value={it.certainty} onChange={(e) => patch({ certainty: e.target.value as Certainty }, "status")}>
@@ -328,6 +337,7 @@ function ItemProps({ it }: { it: EffItem }) {
           )
         })}
         {it.description && <p className="pt-1 text-[11.5px] leading-snug text-muted-foreground">{it.description}</p>}
+        <RevisionsSection it={it} />
         <Field label="Observações">
           <TextField multiline value={it.notes ?? ""} placeholder="Observações, pendências, referências…" onCommit={(v) => patch({ notes: v }, "observações")} />
         </Field>

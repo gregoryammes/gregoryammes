@@ -22,6 +22,12 @@ export const C = {
   slate: "#7C8DA6",
   amber: "#B7791F",
   selection: "#087CB8",
+  /** Documental end of the vigência: a discreet, strong marker. */
+  vigLine: "#C2410C",
+  /** Continuity after the vigência — temporal attention, not a financial verdict. */
+  after: "#EE7F12",
+  afterSoft: "#FFF5EA",
+  afterText: "#9A4A08",
 }
 
 /** Kept for the presentation scenes. */

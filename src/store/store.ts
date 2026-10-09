@@ -1,6 +1,6 @@
 import { create } from "zustand"
 import { createSeed } from "@/data/seed"
-import { normalizeDoc } from "@/data/migrate"
+import { needsMigration, normalizeDoc } from "@/data/migrate"
 import { groupOf, layerFor, type GroupId } from "@/data/types"
 import type { Annotation, BoxLayout, Item, Link, SceneNote, Scenario, StudioDoc } from "@/data/types"
 import type { SpanKind, SpanStatus } from "@/components/ui/agent-trace"
@@ -117,7 +117,17 @@ function loadInitial(): { doc: StudioDoc; scenarioId: string; restored: boolean 
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
-      if (isDoc(parsed.doc)) return { doc: normalizeDoc(parsed.doc), scenarioId: parsed.scenarioId ?? "baseline", restored: true }
+      if (isDoc(parsed.doc)) {
+        // Back up the saved document untouched before any migration rewrites it.
+        if (needsMigration(parsed.doc)) {
+          try {
+            window.localStorage.setItem(`${STORAGE_KEY}:backup-v${parsed.doc.settings.modelVersion ?? 5}`, raw)
+          } catch {
+            /* best effort */
+          }
+        }
+        return { doc: normalizeDoc(parsed.doc), scenarioId: parsed.scenarioId ?? "baseline", restored: true }
+      }
     }
   } catch {
     /* storage unavailable or corrupt: fall back to seed */
@@ -146,7 +156,7 @@ function mapScenario(d: StudioDoc, id: string, fn: (s: Scenario) => Scenario): S
 }
 
 /** Writes a patch to the right place: the baseline record, a scenario override, or a scenario-only item. */
-const VISUAL_KEYS = new Set(["lane", "layer", "color", "detail"])
+const VISUAL_KEYS = new Set(["lane", "layer", "color", "detail", "turmaIds", "consolidation", "partner", "shortName", "courseId"])
 
 /**
  * Composition fields (row order, group, colour) belong to the record's presentation, not to its

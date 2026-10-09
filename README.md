@@ -172,3 +172,54 @@ Referência visual usada: o quadro "Tempo Vigência x Projeto" enviado pelo usu�
 desse quadro (bolsas de inglês, NF-e, quantidades de alunos, valores mensais) **não** foram
 importados, porque a maioria não traz datas legíveis e o briefing pede para não presumir. Eles podem
 ser cadastrados quando houver a tabela de origem.
+
+## V6 — Temporal Intelligence
+
+Três níveis sobre a mesma base de dados: **Portfólio** (só os projetos), **Execução** (atividades
+de um projeto) e **Continuidade** (um registro comparado à vigência, com seus compromissos e os
+cenários futuros).
+
+- **Exibição** (barra da timeline): *Somente Projetos*, *Projetos + Atividades* ou *Somente
+  Atividades Filtradas*. Os botões **P1 · P2 · P3** mostram ou ocultam cada projeto e suas
+  atividades. Clicar num projeto abre o **Resumo do projeto** com a ação **Explorar este
+  projeto**. Esses controles mudam só a visualização: nenhum registro, vínculo ou cenário é
+  alterado. A escolha fica salva neste navegador.
+- **Turmas** são entidades próprias (`doc.turmas`), separadas do **curso** de catálogo
+  (`doc.courses`), da **oferta** (o registro `curso`, como Técnico 1) e da **geração**
+  (`doc.generations`). A barra mostra `Técnico 1 · Turma 2026–2027`; a quantidade de alunos só
+  aparece quando está comprovada. Sem turma vinculada, aparece "Turma a identificar". O painel
+  permite cadastrar, editar, vincular, desvincular e excluir turmas. O filtro **Turma:** atenua ou
+  oculta o que não tem relação com a turma e mantém a vigência visível.
+- **Bolsas de Inglês** aparecem numa única linha consolidada (`consolidation: "ingles"`), com um
+  segmento por período e subfaixas quando os períodos se sobrepõem. Os registros, parceiros e
+  valores continuam separados. A soma de bolsistas não é tratada como número de alunos distintos.
+- **Dois Tempos do Projeto** (aba e cena 3 da Diretoria): Tempo 1 é a vigência; Tempo 2 é a
+  execução das atividades. Os dois ficam no mesmo eixo, e o trecho após o encerramento aparece em
+  laranja. **Explicar dois tempos** tem 7 passos: vigência → encerramento → curso → trecho
+  posterior → bolsas → situação temporal × financeira → cenários do P3.
+- **Situação temporal × situação financeira** são campos independentes. A temporal é calculada
+  (dentro, parcial, integral, sem referência). A financeira é cadastrada (cobertura documentada,
+  pagamento antecipado, compromisso previsto, pagamentos condicionados, não identificada,
+  pendente). "Após a vigência" nunca significa "sem cobertura".
+- **Marco documental × hipótese:** a linha do encerramento é lida sempre da linha de base (laranja
+  escuro, contínua, "linha de base documental"). A vigência de um cenário aparece tracejada e com
+  etiqueta própria. Datas revisadas por evidência ficam registradas no histórico do registro
+  (`revisions`).
+- **Jornada formativa:** *conceitual* (Pré-entrada → 9º ano → 1º EM → Técnico 1 → Técnico 2 →
+  Graduação, mais as atividades complementares), *real por turma* (só o que está vinculado à
+  turma; o restante aparece como "não informado") e *matriz de gerações*.
+- **Migração:** antes de migrar um documento salvo, o original é copiado para
+  `ska-temporal-studio:v1:backup-v5` no armazenamento local. Os IDs são preservados.
+
+Dados acrescentados na V6, todos marcados *a validar*, com a fonte "Quadro Tempo Vigência x
+Projeto":
+- Turma Técnico 2026–2027 (27 alunos informados, não comprovados).
+- Turma prevista 2027–2028 (cenário).
+- Três períodos de Bolsas de Inglês, cujas datas foram em parte lidas da posição das barras no
+  quadro.
+- Situação financeira inicial "pendente de validação".
+- Início da vigência ajustado para 01/07/2025, conforme o período operacional informado, com
+  histórico. O marco de 31/05/2025 continua em registro próprio.
+
+Pendências: não há painel dedicado para cadastrar cursos de catálogo nem gerações (o modelo e o
+vínculo existem); turmas que existem apenas em um cenário não são suportadas.

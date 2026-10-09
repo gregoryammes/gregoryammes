@@ -1,4 +1,5 @@
 import { createSeed } from "./seed"
+import { applyV6 } from "./v6"
 import type { Item, StudioDoc } from "./types"
 import { DEFAULT_LAYER } from "./types"
 
@@ -7,6 +8,14 @@ import { DEFAULT_LAYER } from "./types"
  * placement and the clean/detailed flag change — dates, statuses and values are never touched.
  */
 export function normalizeDoc(d: StudioDoc): StudioDoc {
+  const grouped = normalizeGroups(d)
+  return (grouped.settings.modelVersion ?? 0) >= 6 ? grouped : applyV6(grouped)
+}
+
+/** True when loading this document will change it (callers back it up first). */
+export const needsMigration = (d: StudioDoc) => d.settings.layout !== "groups-v2" || (d.settings.modelVersion ?? 0) < 6
+
+function normalizeGroups(d: StudioDoc): StudioDoc {
   if (d.settings.layout === "groups-v2") return d
   const seed = new Map(createSeed().items.map((i) => [i.id, i]))
   const fix = (it: Item): Item => {

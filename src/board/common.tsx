@@ -33,7 +33,7 @@ export function StatusTag({ c, className }: { c: Certainty; className?: string }
   )
 }
 
-export function Stripes({ id, color = C.red }: { id: string; color?: string }) {
+export function Stripes({ id, color = C.after }: { id: string; color?: string }) {
   return (
     <pattern id={id} patternUnits="userSpaceOnUse" width="12" height="12" patternTransform="rotate(45)">
       <rect width="12" height="12" fill={color} />
@@ -71,7 +71,7 @@ export function StageAxis({ d0, d1, X, y, months = true, vigEnd }: { d0: number;
       const w = X(addMonths(d, 1)) - X(d)
       const isVig = vigEnd != null && d === vigEnd
       out.push(
-        <text key={`m${d}`} x={X(d) + w / 2} y={y + 98} fontSize={14} fontFamily="JetBrains Mono, monospace" textAnchor="middle" fill={isVig ? C.red : C.text3} fontWeight={isVig ? 800 : 500}>
+        <text key={`m${d}`} x={X(d) + w / 2} y={y + 98} fontSize={14} fontFamily="JetBrains Mono, monospace" textAnchor="middle" fill={isVig ? C.vigLine : C.text3} fontWeight={isVig ? 800 : 500}>
           {monthShort(ymd(d).m)[0].toUpperCase()}
         </text>,
       )

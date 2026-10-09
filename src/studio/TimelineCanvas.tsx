@@ -4,12 +4,13 @@ import {
   type DayRange,
 } from "@/lib/dates"
 import type { EffItem } from "@/lib/analysis"
-import { computeRows, BAR_H, LABEL_W, type Row } from "@/lib/layout"
+import { computeRows, BAR_H, LABEL_W, SUB_H, type Row } from "@/lib/layout"
 import { C, barStyleFor, itemColor, statusOf, textWidth, truncate, wrapText, type StatusKey } from "@/lib/visual"
 import { reorderRows, useStudio, uid } from "@/store/store"
 import { useCompareItems, useEffectiveItems, useProjectColor } from "@/store/hooks"
 import { useView } from "@/store/view"
-import { GROUPS, KIND_LABEL, type Annotation, type GroupId } from "@/data/types"
+import { FIN_LABEL, GROUPS, KIND_LABEL, type Annotation, type GroupId } from "@/data/types"
+import { docVigRange, offeringLabel, relatedToTurmas, shortNameOf, TEMPORAL_LABEL, temporalSituation } from "@/lib/v6"
 import { confirmAction } from "@/components/Confirm"
 
 /* ──────────────────────────────────────────────────────────────────────────────
@@ -69,7 +70,20 @@ export function TimelineCanvas() {
   const fitted = useRef(false)
 
   const { settings } = doc
-  const visible = useMemo(() => items.filter((i) => !i.hidden), [items])
+  const { displayMode, hiddenProjects, turmaFilter, turmaFilterMode } = view
+  // Visibility filters only decide what is drawn: records, links and scenarios are untouched.
+  const visible = useMemo(
+    () =>
+      items.filter((i) => {
+        if (i.hidden) return false
+        if (i.projectId && hiddenProjects.includes(i.projectId)) return false
+        if (displayMode === "filtered" && i.kind === "projeto") return false
+        const related = relatedToTurmas(doc, i, turmaFilter) || i.kind === "vigencia"
+        if (turmaFilter.length && (displayMode === "filtered" || turmaFilterMode === "hide") && !related && i.kind !== "projeto") return false
+        return true
+      }),
+    [items, hiddenProjects, displayMode, turmaFilter, turmaFilterMode, doc],
+  )
   const layout = useMemo(
     () =>
       computeRows(visible, {
@@ -77,16 +91,21 @@ export function TimelineCanvas() {
         collapsed: settings.groupsCollapsed ?? [],
         detailed: settings.groupsDetailed ?? [],
         detailAll: view.detailAll,
+        portfolio: displayMode === "projects",
+        consolidations: doc.consolidations,
       }),
-    [visible, settings.groupsHidden, settings.groupsCollapsed, settings.groupsDetailed, view.detailAll],
+    [visible, settings.groupsHidden, settings.groupsCollapsed, settings.groupsDetailed, view.detailAll, displayMode, doc.consolidations],
   )
   const projects = visible.filter((i) => i.kind === "projeto")
-  const vig = visible.find((i) => i.kind === "vigencia" && i.projectId === "p2") ?? visible.find((i) => i.kind === "vigencia")
-  const docVig: DayRange | null = vig ? (vig.baseRange ?? vig.range) : null
-  const hypVig: DayRange | null = vig?.baseRange ? vig.range : null
+  const vig = items.find((i) => i.kind === "vigencia" && i.projectId === "p2") ?? items.find((i) => i.kind === "vigencia")
+  // The documental marker is read from the baseline records, never from the active scenario.
+  const docVig: DayRange | null = docVigRange(doc)
+  const hypVig: DayRange | null = vig && docVig && (vig.range.end !== docVig.end || vig.range.start !== docVig.start) ? vig.range : null
   const refDay = toDay(settings.referenceDate)
   const filter = view.projectFilter
-  const dimmed = (it: EffItem) => filter.length > 0 && !filter.includes(it.projectId ?? "")
+  const dimmed = (it: EffItem) =>
+    (filter.length > 0 && !filter.includes(it.projectId ?? "")) ||
+    (turmaFilter.length > 0 && turmaFilterMode === "dim" && it.kind !== "vigencia" && it.kind !== "projeto" && !relatedToTurmas(doc, it, turmaFilter))
 
   // ── Measure; first open shows 2025–2028 ──────────────────────────────────
   useEffect(() => {
@@ -245,6 +264,11 @@ export function TimelineCanvas() {
 
     if (kind === "g-collapse") return toggleGroup("groupsCollapsed", id as GroupId)
     if (kind === "g-detail") return toggleGroup("groupsDetailed", id as GroupId)
+    if (kind === "cons-label") {
+      const ids = items.filter((i) => i.consolidation === id).map((i) => i.id)
+      st.select(ids)
+      return
+    }
     if (kind === "label" || kind === "item-static") {
       st.select([id], e.shiftKey || e.metaKey || e.ctrlKey)
       return
@@ -536,7 +560,7 @@ export function TimelineCanvas() {
       >
         <defs>
           <pattern id="stripe-after" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)">
-            <rect width="8" height="8" fill={C.red} />
+            <rect width="8" height="8" fill={C.after} />
             <line x1="0" y1="0" x2="0" y2="8" stroke="#FFFFFF" strokeWidth="2" strokeOpacity="0.28" />
           </pattern>
           <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -558,11 +582,11 @@ export function TimelineCanvas() {
         {/* ── Body ─────────────────────────────────────────────────────── */}
         <g clipPath="url(#clip-body)">
           {/* After the documental vigência: very light red, never hiding the bars */}
-          {docVig && <rect x={X(docVig.end)} y={BODY_TOP} width={Math.max(0, size.w - X(docVig.end))} height={bodyH} fill={C.redSoft} />}
+          {docVig && <rect x={X(docVig.end)} y={BODY_TOP} width={Math.max(0, size.w - X(docVig.end))} height={bodyH} fill={C.afterSoft} />}
           {layout.rows.map((r, i) =>
             r.type === "group" ? (
               <rect key={`gb${i}`} x={LABEL_W} y={Y(r.top)} width={timeW} height={r.h} fill="#FFFFFF" fillOpacity={0.6} />
-            ) : r.type === "item" && r.index % 2 === 1 && !r.virtual ? (
+            ) : (r.type === "item" || r.type === "consolidated") && r.index % 2 === 1 && !(r.type === "item" && r.virtual) ? (
               <rect key={`z${i}`} x={LABEL_W} y={Y(r.top)} width={timeW} height={r.h} fill={C.zebra} fillOpacity={0.75} />
             ) : null,
           )}
@@ -590,7 +614,9 @@ export function TimelineCanvas() {
             })}
 
           {layout.rows.map((r, i) => {
+            if (r.type === "consolidated") return <g key={`c${r.key}${i}`}>{ConsolidatedBar({ r })}</g>
             if (r.type !== "item") return null
+            if (r.portfolio) return <g key={`pf${r.item.id}`}>{PortfolioBar({ r })}</g>
             return <g key={`${r.item.id}${r.virtual ?? ""}${i}`}>{ItemBar({ r })}</g>
           })}
 
@@ -621,7 +647,7 @@ export function TimelineCanvas() {
           <line x1={X(refDay)} x2={X(refDay)} y1={BODY_TOP} y2={size.h} stroke="#5FA548" strokeWidth={2.5} pointerEvents="none" />
           {/* Vigência markers */}
           {hypVig && <line x1={X(hypVig.end)} x2={X(hypVig.end)} y1={BODY_TOP} y2={size.h} stroke={C.navy} strokeWidth={2} strokeDasharray="7 5" pointerEvents="none" />}
-          {docVig && <line x1={X(docVig.end)} x2={X(docVig.end)} y1={BODY_TOP} y2={size.h} stroke={C.red} strokeWidth={2.5} pointerEvents="none" />}
+          {docVig && <line x1={X(docVig.end)} x2={X(docVig.end)} y1={BODY_TOP} y2={size.h} stroke={C.vigLine} strokeWidth={2.5} pointerEvents="none" />}
 
           {/* Annotations */}
           {view.showAnnotations && doc.annotations.map((a) => <g key={a.id}>{AnnotationShape({ a })}</g>)}
@@ -635,7 +661,7 @@ export function TimelineCanvas() {
           {docVig && X(docVig.end) > LABEL_W && X(docVig.end) < size.w && (
             <g transform={`translate(${X(docVig.end) + 6},${size.h - 34})`}>
               <rect x={-2} y={-15} width={textWidth(`↑ ${fmtDate(fromDay(docVig.end - 1))} · encerramento da vigência`, 12.5) + 10} height={21} fill="#FFFFFF" fillOpacity={0.92} />
-              <text fill={C.red} fontSize={12.5}>↑ {fmtDate(fromDay(docVig.end - 1))} · encerramento da vigência de referência</text>
+              <text fill={C.vigLine} fontSize={12.5}>↑ {fmtDate(fromDay(docVig.end - 1))} · encerramento de referência (linha de base documental)</text>
             </g>
           )}
           {hypVig && X(hypVig.end) > LABEL_W && X(hypVig.end) < size.w && (
@@ -702,9 +728,9 @@ export function TimelineCanvas() {
             const isAfter = docVig && m.day >= docVig.end
             return (
               <g key={`hm${i}`}>
-                {isAfter && <rect x={X(m.day)} y={HEADER - MONTH_H - 4} width={w} height={MONTH_H} fill={C.redSoft} />}
+                {isAfter && <rect x={X(m.day)} y={HEADER - MONTH_H - 4} width={w} height={MONTH_H} fill={C.afterSoft} />}
                 {m.label && (
-                  <text x={X(m.day) + w / 2} y={HEADER - 9} fontSize={9.5} fontFamily="JetBrains Mono, monospace" fill={docVig && m.day === docVig.end ? C.red : "#8796A8"} fontWeight={docVig && m.day === docVig.end ? 800 : 500} textAnchor="middle">
+                  <text x={X(m.day) + w / 2} y={HEADER - 9} fontSize={9.5} fontFamily="JetBrains Mono, monospace" fill={docVig && m.day === docVig.end ? C.vigLine : "#8796A8"} fontWeight={docVig && m.day === docVig.end ? 800 : 500} textAnchor="middle">
                     {m.label}
                   </text>
                 )}
@@ -714,7 +740,7 @@ export function TimelineCanvas() {
           {weeks.map((d) => (
             <line key={`wk${d}`} x1={X(d)} x2={X(d)} y1={HEADER - 4} y2={HEADER} stroke="#C9D3DE" />
           ))}
-          {docVig && <line x1={X(docVig.end)} x2={X(docVig.end)} y1={PROJ_H + YEAR_H} y2={HEADER} stroke={C.red} strokeWidth={2.5} />}
+          {docVig && <line x1={X(docVig.end)} x2={X(docVig.end)} y1={PROJ_H + YEAR_H} y2={HEADER} stroke={C.vigLine} strokeWidth={2.5} />}
         </g>
         {/* Header corner: the page's title block */}
         <text x={18} y={26} fontSize={17} fontWeight={800} fill={C.text} fontFamily="Inter Tight, Inter, sans-serif">Tempo: Vigência x Projeto</text>
@@ -755,7 +781,7 @@ export function TimelineCanvas() {
 
       {/* Hover card: full details live here, not on the bar */}
       {hover && hoverItem && !dragHint && (
-        <HoverCard item={hoverItem} x={hover.x} y={hover.y} hyp={hover.hyp} w={size.w} refDay={refDay} docVig={docVig} />
+        <HoverCard item={hoverItem} x={hover.x} y={hover.y} hyp={hover.hyp} w={size.w} refDay={refDay} docVig={docVig} label={offeringLabel(doc, hoverItem, true)} />
       )}
       {dragHint && (
         <div className="pointer-events-none absolute z-20 rounded-md border border-primary/40 bg-white px-3 py-2 text-xs shadow-lg" style={{ left: Math.min(dragHint.x + 16, size.w - 280), top: Math.max(HEADER + 6, dragHint.y - 58) }}>
@@ -783,7 +809,7 @@ export function TimelineCanvas() {
             <rect x={0} y={y} width={LABEL_W} height={r.h} fill="#FFFFFF" />
             <path d={r.collapsed ? `M14,${y + 13} l5,4 l-5,4` : `M12,${y + 15} l4,5 l4,-5`} fill="none" stroke={color} strokeWidth={1.8} />
             <text x={28} y={y + 21.5} fontSize={11.5} fontWeight={800} letterSpacing={1.1} fill={color}>
-              {g.code} · {g.label.toUpperCase()}
+              {r.label ? r.label.toUpperCase() : `${g.code} · ${g.label.toUpperCase()}`}
             </text>
             <title>{r.collapsed ? "Expandir grupo" : "Recolher grupo"}</title>
           </g>
@@ -798,6 +824,24 @@ export function TimelineCanvas() {
             {r.count > 0 ? `+ ${r.count} ${r.count === 1 ? "item de detalhe" : "itens de detalhe"}` : "− ocultar detalhes"}
           </text>
           <title>{r.count > 0 ? "Mostrar turmas, atividades, contratos e marcos deste grupo" : "Voltar à visão limpa neste grupo"}</title>
+        </g>
+      )
+    }
+    if (r.type === "consolidated") {
+      const allSel = r.members.length > 0 && r.members.every((m) => sel.has(m.id))
+      return (
+        <g data-hit="cons-label" data-id={r.key} style={{ cursor: "pointer" }}>
+          <rect x={0} y={y} width={LABEL_W} height={r.h} fill={allSel ? "#E6F2FA" : r.index % 2 === 1 ? "#FAFBFD" : "#FFFFFF"} />
+          {allSel && <rect x={0} y={y} width={3} height={r.h} fill={C.blue} />}
+          <text fontSize={12.5} textAnchor="end" fill={C.text}>
+            <tspan x={LABEL_W - 30} y={y + r.h / 2 - 1} fontWeight={700}>{r.name}</tspan>
+            {r.subtitle && <tspan x={LABEL_W - 30} y={y + r.h / 2 + 12} fontSize={11} fill={C.text2}>{r.subtitle}</tspan>}
+          </text>
+          <g transform={`translate(${LABEL_W - 16},${y + r.h / 2})`}>
+            <circle r={8} fill={C.blue} fillOpacity={0.12} />
+            <text y={3.5} fontSize={9.5} fontWeight={800} fill={C.blue} textAnchor="middle">{r.members.length}</text>
+          </g>
+          <title>{`${r.name} — ${r.members.length} registro(s) agrupados nesta linha. Os registros de origem continuam separados.`}</title>
         </g>
       )
     }
@@ -891,6 +935,8 @@ export function TimelineCanvas() {
       r.virtual ? `até ${fmtDate(fromDay(range.end - 1))} · cenário`
       : docRow ? `até ${fmtDate(fromDay(range.end - 1))} · referência documental`
       : it.kind === "vigencia" ? `até ${fmtDate(fromDay(range.end - 1))}`
+      : it.kind === "curso" ? pickFit([offeringLabel(doc, it, true), offeringLabel(doc, it, false), shortDates], (after ? X(after.start) : x2) - Math.max(x1, LABEL_W) - 16)
+      : it.shortName ? pickFit([`${it.shortName} · ${shortDates}`, shortDates], (after ? X(after.start) : x2) - Math.max(x1, LABEL_W) - 16)
       : shortDates
     const innerW = (after ? X(after.start) : x2) - Math.max(x1, LABEL_W) - 16
     const fitsInside = textWidth(innerLabel, 11.5) < innerW
@@ -915,7 +961,7 @@ export function TimelineCanvas() {
         )}
         {after && !narrow && (
           <rect x={X(after.start)} y={by} width={Math.max(2, afterW)} height={BAR_H} rx={3} fill={status === "cenario" ? "#FFFFFF" : "url(#stripe-after)"}
-            stroke={C.red} strokeWidth={status === "cenario" ? 1.6 : 0} strokeDasharray={status === "cenario" ? "6 4" : undefined} pointerEvents="none" />
+            stroke={C.after} strokeWidth={status === "cenario" ? 1.6 : 0} strokeDasharray={status === "cenario" ? "6 4" : undefined} pointerEvents="none" />
         )}
         {!narrow && (fitsInside ? (
           <text x={Math.max(x1, LABEL_W) + 9} y={cy + 4} fontSize={11.5} fontWeight={600} fill={bs.text} pointerEvents="none">{innerLabel}</text>
@@ -924,12 +970,12 @@ export function TimelineCanvas() {
         ) : null)}
         {status === "concluido" && w > 30 && <path d={`M${x2 - 18},${cy} l4,4 l8,-8`} stroke="#FFFFFF" strokeWidth={2} fill="none" pointerEvents="none" />}
         {after && afterW > 56 && (
-          <text x={X(after.start) + afterW / 2} y={cy + 4} fontSize={11.5} fontWeight={700} fill={status === "cenario" ? C.red : "#FFFFFF"} textAnchor="middle" pointerEvents="none">
+          <text x={X(after.start) + afterW / 2} y={cy + 4} fontSize={11.5} fontWeight={700} fill={status === "cenario" ? C.afterText : "#FFFFFF"} textAnchor="middle" pointerEvents="none">
             {afterW > 150 ? `${afterMonths} meses após a vigência` : `+${afterMonths} m`}
           </text>
         )}
         {showAfterLabel && afterW <= 56 && (
-          <text x={X(after!.end) + 8} y={cy + 4} fontSize={11.5} fontWeight={700} fill={C.red} pointerEvents="none">+{afterMonths} meses após a vigência</text>
+          <text x={X(after!.end) + 8} y={cy + 4} fontSize={11.5} fontWeight={700} fill={C.afterText} pointerEvents="none">+{afterMonths} meses após a vigência</text>
         )}
         {it.changed && !docRow && (
           <g pointerEvents="none" transform={`translate(${x1},${by - 9})`}>
@@ -954,6 +1000,92 @@ export function TimelineCanvas() {
             <rect data-hit="item-r" data-id={it.id} x={x2 - 4} y={by} width={7} height={BAR_H} fill="transparent" style={{ cursor: "ew-resize" }} />
           </>
         )}
+      </g>
+    )
+  }
+
+  /** Portfolio mode: the cycle, and — for a project with a vigência — its documental and simulated periods. */
+  function PortfolioBar({ r }: { r: Extract<Row, { type: "item" }> }) {
+    const it = r.item
+    const top = Y(r.top)
+    const color = colorOf(it.projectId)
+    const hyp = it.certainty === "hipotese"
+    const x1 = X(it.range.start)
+    const x2 = X(it.range.end)
+    const isSel = sel.has(it.id)
+    const proj = doc.projects.find((p) => p.id === it.projectId)
+    const pv = doc.items.find((i) => i.kind === "vigencia" && i.projectId === it.projectId)
+    const pvRange = pv ? docVigRange(doc, it.projectId ?? "") : null
+    const pvEff = items.find((i) => i.kind === "vigencia" && i.projectId === it.projectId)
+    const pvHyp = pvEff && pvRange && pvEff.range.end !== pvRange.end ? pvEff.range : null
+    const label = `${proj?.name ?? it.name} · ${proj?.phase ?? ""}`
+    const period = it.precision === "year" ? `${it.start.slice(0, 4)}–${it.end.slice(0, 4)}` : `${shortMonth(it.range.start)} – ${shortMonth(it.range.end - 1)}`
+    const enter = (e: React.PointerEvent) => !gesture.current && setHover({ id: it.id, x: local(e).x, y: top + r.h })
+    const leave = () => setHover((h) => (h?.id === it.id ? null : h))
+    return (
+      <g opacity={dimmed(it) ? 0.3 : 1} onPointerEnter={enter} onPointerLeave={leave}>
+        <rect data-hit="item" data-id={it.id} x={x1} y={top + 8} width={Math.max(2, x2 - x1)} height={32} rx={4}
+          fill={hyp ? "#FFFFFF" : color} stroke={color} strokeWidth={hyp ? 2 : 0} strokeDasharray={hyp ? "7 4" : undefined} style={{ cursor: "grab" }} />
+        <text x={Math.max(x1, LABEL_W) + 12} y={top + 29} fontSize={13} fontWeight={700} fill={hyp ? color : "#FFFFFF"} pointerEvents="none">
+          {truncate(`${label}  ·  ${period}${hyp ? " · em modelagem" : ""}`, Math.min(x2, size.w) - Math.max(x1, LABEL_W) - 20, 13)}
+        </text>
+        {pvRange && (
+          <g pointerEvents="none">
+            <rect x={X(pvRange.start)} y={top + 45} width={X(pvRange.end) - X(pvRange.start)} height={8} rx={2} fill={C.navy} />
+            {pvHyp && <rect x={X(pvRange.end)} y={top + 45} width={Math.max(0, X(pvHyp.end) - X(pvRange.end))} height={8} rx={2} fill="#FFFFFF" stroke={C.navy} strokeDasharray="4 3" />}
+            <text x={X(pvRange.end) + (pvHyp ? X(pvHyp.end) - X(pvRange.end) : 0) + 8} y={top + 53} fontSize={10.5} fill={C.text2}>
+              vigência até {fmtDate(fromDay(pvRange.end - 1))}{pvHyp ? ` · cenário até ${fmtDate(fromDay(pvHyp.end - 1))}` : ""}
+            </text>
+          </g>
+        )}
+        {isSel && <rect x={x1 - 3} y={top + 5} width={x2 - x1 + 6} height={38} rx={6} fill="none" stroke={C.selection} strokeWidth={2.5} pointerEvents="none" />}
+      </g>
+    )
+  }
+
+  /** Bolsas de Inglês and other programmes: one row, one segment per record, no artificial continuity. */
+  function ConsolidatedBar({ r }: { r: Extract<Row, { type: "consolidated" }> }) {
+    const top = Y(r.top)
+    const inner = r.h - 10
+    const laneH = r.laneCount > 1 ? Math.min(SUB_H + 3, inner / r.laneCount) : BAR_H
+    const y0 = top + (r.h - laneH * r.laneCount) / 2
+    return (
+      <g>
+        {r.members.map((m, k) => {
+          const color = itemColor(m.kind, colorOf(m.projectId), m.color)
+          const st = statusOf(m, refDay)
+          const bs = barStyleFor(st.key, color)
+          const x1 = X(m.range.start)
+          const x2 = X(m.range.end)
+          const by = y0 + r.lanes[k] * laneH + 1
+          const h = laneH - 2
+          const isSel = sel.has(m.id)
+          const after = docVig ? partAfter(m.range, docVig) : null
+          const label = `${shortMonth(m.range.start)} – ${shortMonth(m.range.end - 1)}`
+          return (
+            <g key={m.id} opacity={dimmed(m) ? 0.3 : 1}
+              onPointerEnter={(e) => !gesture.current && setHover({ id: m.id, x: local(e).x, y: by + h })}
+              onPointerLeave={() => setHover((hv) => (hv?.id === m.id ? null : hv))}>
+              <rect data-hit="item" data-id={m.id} x={x1} y={by} width={Math.max(2, x2 - x1)} height={h} rx={3}
+                fill={bs.fill} fillOpacity={bs.fillOpacity} stroke={bs.stroke} strokeWidth={Math.max(1, bs.strokeWidth)} strokeDasharray={bs.dash} style={{ cursor: "grab" }} />
+              {after && <rect x={X(after.start)} y={by} width={Math.max(2, X(after.end) - X(after.start))} height={h} rx={3} fill={st.key === "planejado" || st.key === "cenario" ? "none" : "url(#stripe-after)"} stroke={C.after} strokeWidth={st.key === "planejado" || st.key === "cenario" ? 1.5 : 0} pointerEvents="none" />}
+              {textWidth(label, 10.5) < x2 - x1 - 12 && (
+                <text x={Math.max(x1, LABEL_W) + 7} y={by + h / 2 + 3.5} fontSize={10.5} fontWeight={600} fill={bs.text} pointerEvents="none">{label}</text>
+              )}
+              {isSel && (
+                <>
+                  <rect x={x1 - 2} y={by - 2} width={x2 - x1 + 4} height={h + 4} rx={4} fill="none" stroke={C.selection} strokeWidth={2} pointerEvents="none" />
+                  {!m.locked && (
+                    <>
+                      <rect data-hit="item-l" data-id={m.id} x={x1 - 4} y={by + 1} width={8} height={h - 2} rx={2} fill="#FFFFFF" stroke={C.selection} strokeWidth={1.5} style={{ cursor: "ew-resize" }} />
+                      <rect data-hit="item-r" data-id={m.id} x={x2 - 4} y={by + 1} width={8} height={h - 2} rx={2} fill="#FFFFFF" stroke={C.selection} strokeWidth={1.5} style={{ cursor: "ew-resize" }} />
+                    </>
+                  )}
+                </>
+              )}
+            </g>
+          )
+        })}
       </g>
     )
   }
@@ -1017,6 +1149,9 @@ export function TimelineCanvas() {
   }
 }
 
+/** First label that fits the available width. */
+const pickFit = (labels: string[], room: number) => labels.find((l) => textWidth(l, 11.5) < room) ?? labels[labels.length - 1]
+
 const st0 = (it: EffItem) => it.certainty === "hipotese" || it.certainty === "a_validar" || it.certainty === "planejado"
 
 function StatusGlyph({ x, y, status, pending, color }: { x: number; y: number; status: StatusKey; pending: boolean; color: string }) {
@@ -1046,20 +1181,30 @@ function StatusGlyph({ x, y, status, pending, color }: { x: number; y: number; s
   )
 }
 
-function HoverCard({ item, x, y, hyp, w, refDay, docVig }: { item: EffItem; x: number; y: number; hyp?: boolean; w: number; refDay: number; docVig: DayRange | null }) {
+function HoverCard({ item, x, y, hyp, w, refDay, docVig, label }: { item: EffItem; x: number; y: number; hyp?: boolean; w: number; refDay: number; docVig: DayRange | null; label: string }) {
   const range = item.kind === "vigencia" && item.baseRange && !hyp ? item.baseRange : item.range
   const st = statusOf({ ...item, range }, refDay)
   const after = docVig && item.kind !== "vigencia" && item.kind !== "projeto" && item.kind !== "planejamento" && !item.dateUndetermined ? partAfter(range, docVig) : null
   return (
     <div className="pointer-events-none absolute z-30 w-[290px] rounded-lg border bg-white p-3 text-[12px] leading-snug shadow-xl shadow-slate-900/10" style={{ left: Math.min(Math.max(8, x - 20), w - 300), top: y + 4 }}>
       <div className="font-semibold text-foreground">{hyp ? `${item.name} — cenário` : item.name}</div>
+      {item.kind === "curso" && <div className="text-[11.5px] font-medium text-primary">{label}</div>}
+      {item.kind !== "curso" && item.shortName && <div className="text-[11.5px] text-muted-foreground">{shortNameOf(item)}</div>}
       <div className="text-muted-foreground">{KIND_LABEL[item.kind]} · {st.label}</div>
       <div className="mt-1.5 font-medium text-foreground">
         {item.dateUndetermined ? `Período geral ${item.start.slice(0, 4)}–${item.end.slice(0, 4)} · datas específicas a validar` : `${fmtDate(fromDay(range.start))} – ${fmtDate(fromDay(range.end - 1))}`}
       </div>
       {!item.dateUndetermined && <div className="text-muted-foreground">{calendarMonthsTouched(range)} meses-calendário · {lengthDays(range)} dias</div>}
-      {after && <div className="mt-1.5 font-semibold text-destructive">{calendarMonthsTouched(after)} meses-calendário após a vigência de referência ({fmtMonthsSpan(after)}). Cobertura a verificar na documentação.</div>}
+      {after && <div className="mt-1.5 font-semibold text-[#9A4A08]">{calendarMonthsTouched(after)} meses-calendário após a vigência de referência ({fmtMonthsSpan(after)}). Cobertura a verificar na documentação.</div>}
       {item.kind === "vigencia" && item.baseRange && <div className="mt-1.5 text-navy">{hyp ? "Hipótese de cenário — não representa aprovação." : "Referência documental — a validar."}</div>}
+      {!["vigencia", "projeto", "planejamento", "marco"].includes(item.kind) && (
+        <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 border-t pt-1.5 text-[11.5px]">
+          <span className="text-muted-foreground">Tempo</span>
+          <span className="font-medium">{TEMPORAL_LABEL[temporalSituation(range, docVig, item.dateUndetermined).key]}</span>
+          <span className="text-muted-foreground">Financeiro</span>
+          <span className="font-medium">{FIN_LABEL[item.finSituation ?? "pendente"]}</span>
+        </div>
+      )}
       {st.pending && <div className="mt-1.5 text-[#8a5a10]">Informação a validar na documentação.</div>}
     </div>
   )

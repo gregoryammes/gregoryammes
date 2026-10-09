@@ -2,7 +2,9 @@ import { create } from "zustand"
 import { dayOf } from "@/lib/dates"
 
 export type Tool = "select" | "hand" | "note" | "connect"
-export type StudioView = "timeline" | "journey"
+export type StudioView = "timeline" | "journey" | "twotimes"
+export type DisplayMode = "projects" | "all" | "filtered"
+export type JourneyMode = "conceitual" | "turma" | "matriz"
 
 export const RANGE_PRESETS = [
   { id: "vigencia", label: "2025–2028 · Vigência e continuidade", from: 2025, to: 2028 },
@@ -34,6 +36,13 @@ interface ViewState {
   showAnnotations: boolean
   showTrace: boolean
   studioView: StudioView
+  /** What the timeline shows. Visibility only: never edits, archives or unlinks records. */
+  displayMode: DisplayMode
+  hiddenProjects: string[]
+  turmaFilter: string[]
+  turmaFilterMode: "dim" | "hide"
+  journeyMode: JourneyMode
+  journeyTurma: string | null
   detailAll: boolean
   sidebarOpen: boolean
   indicatorsOpen: boolean
@@ -50,6 +59,17 @@ interface ViewState {
 /** Never show more than ~12 years: periods must stay readable. */
 const clampPpd = (v: number, width = 1000) => Math.min(MAX_PPD, Math.max(MIN_PPD, width / (12 * 365), v))
 
+const VIEW_KEY = "ska-temporal-studio:view"
+const PERSISTED = ["displayMode", "hiddenProjects", "turmaFilter", "turmaFilterMode", "journeyMode", "journeyTurma", "detailAll", "sidebarOpen"] as const
+function loadView(): Partial<ViewState> {
+  try {
+    const raw = typeof window !== "undefined" ? window.localStorage.getItem(VIEW_KEY) : null
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
 export const useView = create<ViewState>((set, get) => ({
   x0: dayOf(2022, 10, 1),
   pxPerDay: 300 / 365,
@@ -62,6 +82,12 @@ export const useView = create<ViewState>((set, get) => ({
   showAnnotations: true,
   showTrace: false,
   studioView: "timeline",
+  displayMode: "all",
+  hiddenProjects: [],
+  turmaFilter: [],
+  turmaFilterMode: "dim",
+  journeyMode: "conceitual",
+  journeyTurma: null,
   detailAll: false,
   sidebarOpen: true,
   indicatorsOpen: false,
@@ -70,6 +96,7 @@ export const useView = create<ViewState>((set, get) => ({
     set({ range: { from, to } })
     get().fit(dayOf(from, 1), dayOf(to + 1, 1))
   },
+  ...loadView(),
   set: (p) => set(p),
   zoomAt: (factor, anchorPx) => {
     const { x0, pxPerDay, width } = get()
@@ -93,3 +120,15 @@ export const useView = create<ViewState>((set, get) => ({
     set({ pxPerDay: ppd, x0: (start + end) / 2 - width / 2 / ppd })
   },
 }))
+
+// View preferences are per viewer and survive a reload; they never touch the records.
+if (typeof window !== "undefined") {
+  useView.subscribe((v, prev) => {
+    if (PERSISTED.every((k) => v[k] === prev[k])) return
+    try {
+      window.localStorage.setItem(VIEW_KEY, JSON.stringify(Object.fromEntries(PERSISTED.map((k) => [k, v[k]]))))
+    } catch {
+      /* storage unavailable */
+    }
+  })
+}

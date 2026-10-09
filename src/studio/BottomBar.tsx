@@ -59,7 +59,7 @@ export function Legend() {
       {opts.stripes && (
         <defs>
           <pattern id="lg-st" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
-            <rect width="6" height="6" fill={C.red} />
+            <rect width="6" height="6" fill={C.after} />
             <line x1="0" y1="0" x2="0" y2="6" stroke="#fff" strokeWidth="1.6" strokeOpacity="0.3" />
           </pattern>
         </defs>
@@ -73,14 +73,15 @@ export function Legend() {
     [sw(C.plan, { op: 0.25, stroke: C.plan }), "planejado"],
     [sw("#fff", { stroke: C.navy, dash: "5 3" }), "cenário / proposta"],
     [sw("#E4E9F0", { stroke: "#B8C3D1", dash: "2 2" }), "não confirmado"],
-    [sw("", { stripes: true }), "após a vigência de referência"],
+    [sw("", { stripes: true }), "após a vigência (≠ sem cobertura)"],
     [<svg key="d" width="26" height="12" aria-hidden="true"><line x1="1" x2="25" y1="6" y2="6" stroke={C.plan} strokeWidth="2" strokeDasharray="2 3" /></svg>, "data a validar"],
     [<svg key="g" width="14" height="12" aria-hidden="true"><circle cx="7" cy="6" r="4.5" fill="#FFF4D6" stroke={C.amber} /></svg>, "informação a validar"],
   ]
   return (
     <div className="scroll-thin flex items-center gap-x-3.5 overflow-x-auto text-[11px] whitespace-nowrap text-muted-foreground">
       <span className="flex items-center gap-1.5"><span className="h-3 w-0.5 bg-[#5FA548]" /> referência (hoje)</span>
-      <span className="flex items-center gap-1.5"><span className="h-3 w-0.5 bg-destructive" /> fim da vigência</span>
+      <span className="flex items-center gap-1.5"><span className="h-3 w-0.5 bg-[#C2410C]" /> fim da vigência (documental)</span>
+      <span className="flex items-center gap-1.5"><span className="h-3 border-l-2 border-dashed border-navy" /> vigência em cenário</span>
       {items.map(([g, l], i) => (
         <span key={i} className="flex items-center gap-1.5">{g}{l}</span>
       ))}
@@ -110,7 +111,7 @@ export function IndicatorStrip() {
         >
           <span><b className="text-foreground">{running}</b> em execução</span>
           <span><b className="text-foreground">{indicators.coursesRunning.length}</b> curso(s) ativo(s)</span>
-          <span><b className="text-destructive">{indicators.overruns.length}</b> após a vigência</span>
+          <span><b className="text-[#9A4A08]">{indicators.overruns.length}</b> após a vigência</span>
           <span><b className="text-foreground">{indicators.pendingDecisions}</b> decisões pendentes</span>
           {open ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />}
         </button>

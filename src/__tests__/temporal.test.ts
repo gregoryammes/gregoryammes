@@ -110,3 +110,64 @@ describe("V4 layout and journey", () => {
     expect(j.cells.find((c) => c.cohort === 2025 && c.stage === 2)!.state).toBe("cenario")
   })
 })
+
+describe("V6 — turmas, consolidation, two times", () => {
+  it("applyV6 is idempotent and keeps IDs", async () => {
+    const { applyV6 } = await import("@/data/v6")
+    const once = createSeed()
+    const twice = applyV6(once)
+    expect(twice.items.map((i) => i.id)).toEqual(once.items.map((i) => i.id))
+    expect(twice.turmas).toEqual(once.turmas)
+  })
+  it("revises the vigência start once, with history, and keeps 30/06/2027", () => {
+    const v = createSeed().items.find((i) => i.id === "p2-vigencia")!
+    expect(v.start).toBe("2025-07-01")
+    expect(v.end).toBe("2027-06-30")
+    expect(v.revisions?.[0]).toMatchObject({ field: "start", from: "2025-05-31", to: "2025-07-01" })
+  })
+  it("labels offerings with their turma; students only when documented", async () => {
+    const { offeringLabel } = await import("@/lib/v6")
+    const doc = createSeed()
+    const t1 = doc.items.find((i) => i.id === "t1")!
+    expect(offeringLabel(doc, t1)).toBe("Técnico 1 · Turma 2026–2027")
+    const proven = { ...doc, turmas: doc.turmas!.map((t) => (t.id === "turma-tec-2026" ? { ...t, studentsCertainty: "comprovado" as const } : t)) }
+    expect(offeringLabel(proven, t1)).toBe("Técnico 1 · Turma 2026–2027 · 27 alunos")
+    expect(offeringLabel(doc, doc.items.find((i) => i.id === "t2")!)).toBe("Técnico 2 · Turma prevista 2027–2028")
+  })
+  it("says 'Turma a identificar' without inventing one", async () => {
+    const { offeringLabel } = await import("@/lib/v6")
+    const doc = createSeed()
+    expect(offeringLabel(doc, { ...doc.items.find((i) => i.id === "t1")!, id: "x", turmaIds: [] })).toBe("Técnico 1 · Turma a identificar")
+  })
+  it("classifies temporal situation independently of finance", async () => {
+    const { temporalSituation, docVigRange } = await import("@/lib/v6")
+    const doc = createSeed()
+    const vig = docVigRange(doc)
+    expect(temporalSituation(rangeOf("2026-02-01", "2027-12-31"), vig).key).toBe("parcial")
+    expect(temporalSituation(rangeOf("2027-08-01", "2027-12-31"), vig).key).toBe("integral")
+    expect(temporalSituation(rangeOf("2026-02-01", "2027-06-30"), vig).key).toBe("dentro")
+    expect(temporalSituation(rangeOf("2023-01-01", "2025-12-31"), vig, true).key).toBe("sem_ref")
+  })
+  it("the documental vigência ignores scenario overrides", async () => {
+    const { docVigRange } = await import("@/lib/v6")
+    const doc = writePatch(createSeed(), "working", "p2-vigencia", { end: "2027-12-31" })
+    expect(fromDay(docVigRange(doc)!.end - 1)).toBe("2027-06-30")
+  })
+  it("consolidates Bolsas de Inglês visually without merging records", async () => {
+    const { summarizeConsolidation } = await import("@/lib/v6")
+    const s = summarizeConsolidation(applyScenario(createSeed(), "baseline"), "ingles")
+    expect(s.members.map((m) => m.id)).toEqual(["ing-1", "ing-2", "ing-3"])
+    expect(s.recordStudents).toBe(6)
+  })
+  it("rejects an invalid turma edit as a whole", async () => {
+    const { patchTurma } = await import("@/store/turmas")
+    const doc = createSeed()
+    expect(patchTurma(doc, "turma-tec-2026", { start: "2028-01-01", name: "x" })).toBe(doc)
+  })
+  it("moving a turma re-links both offerings in one step", async () => {
+    const { patchTurma } = await import("@/store/turmas")
+    const d = patchTurma(createSeed(), "turma-tec-2026", { offeringId: "t2" })
+    expect(d.items.find((i) => i.id === "t1")!.turmaIds).not.toContain("turma-tec-2026")
+    expect(d.items.find((i) => i.id === "t2")!.turmaIds).toContain("turma-tec-2026")
+  })
+})

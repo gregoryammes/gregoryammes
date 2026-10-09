@@ -149,6 +149,89 @@ export interface Item {
   hidden?: boolean
   /** Shown only when its group is in detailed view. Defaults by kind (see `isDetail`). */
   detail?: boolean
+  /** Short label for bars, e.g. "Técnico 1". The full `name` stays in the panel and tooltip. */
+  shortName?: string
+  /** Offerings (curso items): catalogue course they are an edition of. */
+  courseId?: string | null
+  /** Turmas this record serves: an offering's turmas, or the beneficiaries of a bolsa. */
+  turmaIds?: string[]
+  /** Visual consolidation: records sharing a key are drawn on one row (no administrative merge). */
+  consolidation?: string | null
+  /** Partner / supplier — administrative detail, never shown on the main timeline. */
+  partner?: string
+  /** Financial situation, independent from the temporal situation. */
+  finSituation?: FinSituation
+  /** Documented revisions of this record (date changes backed by evidence). */
+  revisions?: Revision[]
+}
+
+export type FinSituation =
+  | "cobertura_documentada"
+  | "pagamento_antecipado"
+  | "compromisso_previsto"
+  | "pagamentos_condicionados"
+  | "nao_identificada"
+  | "pendente"
+
+export const FIN_LABEL: Record<FinSituation, string> = {
+  cobertura_documentada: "Cobertura documentada",
+  pagamento_antecipado: "Pagamento antecipado documentado",
+  compromisso_previsto: "Compromisso previsto",
+  pagamentos_condicionados: "Pagamentos futuros condicionados",
+  nao_identificada: "Cobertura não identificada",
+  pendente: "Situação pendente de validação",
+}
+
+export interface Revision {
+  at: ISODate
+  field: "start" | "end"
+  from: ISODate
+  to: ISODate
+  sourceId?: string
+  note: string
+}
+
+/** Catalogue course (e.g. a technical course). Distinct from its editions (offerings). */
+export interface Course {
+  id: string
+  name: string
+  notes?: string
+}
+
+/** A class of students. An offering may have one or more turmas. */
+export interface Turma {
+  id: string
+  name: string
+  entryYear: number
+  start: ISODate
+  end: ISODate
+  courseId: string | null
+  /** Offering (curso item) the turma attends. */
+  offeringId: string | null
+  projectId: string | null
+  /** Only when documented; `null` = não informado. */
+  students: number | null
+  studentsCertainty?: Certainty
+  stage: "jornada" | "robotica" | "tecnico" | "graduacao" | "outra"
+  status: Certainty
+  sourceIds: string[]
+  notes?: string
+  generationId?: string | null
+}
+
+/** Group of students followed across stages, only when the link is documented. */
+export interface Generation {
+  id: string
+  name: string
+  /** Year the generation attends the 9º ano. */
+  cohortYear: number
+  notes?: string
+}
+
+export interface Consolidation {
+  id: string
+  name: string
+  subtitle?: string
 }
 
 export interface Project {
@@ -247,6 +330,8 @@ export interface Settings {
   groupsDetailed?: GroupId[]
   /** Journey matrix: first and last cohort (year the cohort is in 9º ano). */
   journeyCohorts?: { from: number; to: number }
+  /** Data-model version applied by `normalizeDoc`. */
+  modelVersion?: number
 }
 
 export interface StudioDoc {
@@ -260,6 +345,10 @@ export interface StudioDoc {
   links: Link[]
   sources: Source[]
   decisions: Decision[]
+  courses?: Course[]
+  turmas?: Turma[]
+  generations?: Generation[]
+  consolidations?: Consolidation[]
   presentation: {
     layout: Record<string, BoxLayout>
     notes: SceneNote[]

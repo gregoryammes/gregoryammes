@@ -1,7 +1,7 @@
 import { useRef, useState } from "react"
 import {
   CalendarRange, ChevronDown, Download, FileJson, Filter, GanttChart, Image as ImageIcon, Maximize2, Presentation,
-  Redo2, RotateCcw, Save, Undo2, Upload, Users, ZoomIn, ZoomOut,
+  Redo2, RotateCcw, Save, Timer, Undo2, Upload, Users, ZoomIn, ZoomOut,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { GROUPS } from "@/data/types"
@@ -74,7 +74,7 @@ export function TopBar() {
   return (
     <header className="relative z-30 flex h-[52px] shrink-0 items-center gap-3 border-b bg-white px-3">
       {/* Left: identity + active scenario */}
-      <div className="flex min-w-0 items-center gap-2.5">
+      <div className="flex shrink-0 items-center gap-2.5">
         <Logo />
         <div className="hidden leading-tight sm:block">
           <div className="text-[10px] font-semibold tracking-[0.16em] whitespace-nowrap text-muted-foreground">SKA TECH HUB</div>
@@ -99,8 +99,8 @@ export function TopBar() {
       {/* Center: range, zoom, filters, views */}
       <div className="mx-auto hidden items-center gap-1.5 lg:flex">
         <div className="relative">
-          <Button size="sm" variant="outline" title="Intervalo temporal exibido" onClick={() => setMenu(menu === "range" ? null : "range")}>
-            <CalendarRange className="size-3.5 text-muted-foreground" /> <span className="max-w-[118px] truncate 2xl:max-w-[260px]">{rangeLabel}</span> <ChevronDown className="size-3" />
+          <Button size="sm" variant="outline" title={`Intervalo temporal exibido: ${rangeLabel}`} onClick={() => setMenu(menu === "range" ? null : "range")}>
+            <CalendarRange className="size-3.5 text-muted-foreground" /> <span className="2xl:hidden">{view.range ? `${view.range.from}–${view.range.to}` : "Livre"}</span><span className="hidden max-w-[260px] truncate 2xl:inline">{rangeLabel}</span> <ChevronDown className="size-3" />
           </Button>
           {menu === "range" && (
             <Menu onClose={() => setMenu(null)}>
@@ -180,6 +180,7 @@ export function TopBar() {
         <div role="tablist" aria-label="Visualização" className="ml-1 flex rounded-md border bg-muted p-0.5">
           {([
             ["timeline", "Linha do tempo", GanttChart],
+            ["twotimes", "Dois Tempos", Timer],
             ["journey", "Jornada", Users],
           ] as const).map(([id, label, Icon]) => (
             <button
