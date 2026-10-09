@@ -294,11 +294,12 @@ As visões anteriores continuam em *Exibição*: Somente Projetos, Projetos + Cu
   - Robótica: 2024, 2026 e 2027 (contratação pendente).
   - Cursos Técnicos: 2024–2025 (P1), 2026–2027 (Técnico 1) e 2028–2029 (aquisição a decidir), todos numa linha. Cada curso de dois anos é uma barra contínua.
 - Datas aproximadas aparecem com “≈” e contorno tracejado.
-- **Carimbo financeiro** no canto da barra, lido do registro de aquisição (projeto financiador + situação), nunca da cor da barra:
-  - P1 · Pago, P2 · Pago, P2 · Parcelas, P2 · Contratado;
+- **Carimbo financeiro** no canto da barra, lido do registro de aquisição (projeto financiador + situação), nunca da cor da barra nem da linha do projeto:
+  - P1 · Pago, P2 · Pago, P2 · Parcial, P2 · Parcelas (só com pagamento em parcelas registrado), P2 · Contratado;
   - Cotação, A contratar;
-  - Financiamento a definir, P2 · a validar (ação sem registro), P3 · Proposta.
-- **Zoom**: *Anos* mostra só anos, *Semestres* mostra anos e semestres, *Meses* mostra também os meses. A posição é calculada pelo dia exato.
+  - Financiamento a definir, A validar (ação sem registro de aquisição: nenhum financiador é presumido), P3 · Proposta.
+  - Em barra estreita vira forma curta ou um ponto; o detalhe (ex.: “comprovação pendente”, valor da cotação ou da parcela) aparece ao passar o mouse. Ocultar o projeto financiador não apaga o carimbo.
+- **Zoom**: *Anos* mostra só anos, *Semestres* mostra anos e semestres, *Meses* mostra também os meses — o nível vale em qualquer largura de tela. A posição é calculada pelo dia exato.
 - Com Técnico 1 e Técnico 2 encostados na mesma linha, as alças de redimensionar do bloco selecionado têm prioridade sobre as do vizinho.
 
 **Quadrantes** (destaques visuais de período × faixa de linhas, sempre atrás das barras e textos):
@@ -338,20 +339,33 @@ As visões anteriores continuam em *Exibição*: Somente Projetos, Projetos + Cu
   - Opção “Outras atividades” acrescenta Robótica 2026, Bolsas de Inglês e a 4ª Jornada.
 - *Explicar vigência*: continua em 7 etapas. A cena 3 da Diretoria usa a mesma visão, compactada para 16:9.
 
-**Dados V18** (informados no briefing, a validar; migração idempotente com backup `ska-temporal-studio:v1:backup-v11`, IDs preservados):
+**Dados V18** (informados no briefing, a validar). A migração:
+- é idempotente, faz backup antes (`ska-temporal-studio:v1:backup-v11`) e preserva os IDs;
+- é conservadora: só remodela um registro que ainda tem os valores de fábrica da V11, e um registro editado pelo usuário fica como está;
+- acrescenta às notas em vez de substituí-las;
+- não cria uma segunda aquisição nem o pagamento antecipado do T1 se já houver um cadastrado;
+- move o Técnico futuro (curso, bolsas, turmas e cenário 2027–2028) inteiro ou não move nada.
+
+Os dados:
 - *Projeto 1*: concluído. Aquisições registradas como pagas, com comprovação pendente.
 - *Técnico 1*:
   - período 18/02/2026–dez/2027;
   - aquisição de R$ 298.012 paga antecipadamente pelo P2 em set/2025;
   - bolsas por frequência e unidades curriculares.
 - *Robótica*:
-  - 2026: a partir de 14/03/2026, parcelas mensais de R$ 4.480 ao SENAI; fim dez/2026 a validar.
+  - 2026: a partir de 14/03/2026, parcelas mensais de R$ 4.480 ao SENAI. O término não foi informado: o período aparece como aproximado (≈) até dez/2026, a validar.
   - 2027: cotação de R$ 44.800, contratação pendente.
 - *Técnico 2*:
   - 2028–2029 (planejamento mais recente), aquisição a decidir (SENAI, pagamento e NF únicos).
   - Os registros 2027–2028 foram mantidos no cenário “Técnico futuro — turma 2027–2028 (registros anteriores)”.
 - *Jornadas*: 3ª Jornada sem financiador registrado; 5ª Jornada colocada provisoriamente em 2027 (planejamento a validar).
 - *Projeto 3*: em modelagem; não é tratado como fonte de compromissos anteriores.
+
+**Turmas em cenário:** no cenário “turma 2027–2028”, vincular/desvincular turma do T2 altera só o cenário — a linha de base continua com a turma 2028–2029.
+
+**Testes:**
+- `npm test`: 67 testes, incluindo migração a partir do documento V11 real, registros editados, regras e travas dos quadrantes, carimbo e vínculos de turma por cenário.
+- `node scripts/e2e.mjs <url>`: 81 verificações no navegador, todas aprovadas na última execução. Inclui 19 da V18: visão macro, linhas de formação, carimbos, barra contínua, zoom ano/semestre/mês, régua sincronizada, criar/editar/mover/bloquear/excluir quadrante, divisão automática após o marco, competências das bolsas, status temporal × financeiro, quadros do Dois Tempos, persistência e ausência de duplicidade financeira.
 
 **Ainda não feito (Entregas 2–4):**
 - *Entrega 2*: regras de bolsa por competência (frequência, unidades curriculares), marcos editáveis com comparação documental × cenário e seletor da referência da vigência do P2 (assinatura maio/junho 2025 × operacional).

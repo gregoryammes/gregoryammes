@@ -972,7 +972,8 @@ export function TimelineCanvas() {
           <tspan x={18} y={24} fontSize={15} fontWeight={800}>SKA Tech Hub — Evolução</tspan>
           <tspan x={18} y={42} fontSize={15} fontWeight={800}>dos Projetos e da Formação</tspan>
         </text>
-        <text x={18} y={62} fontSize={10} fill={C.text2}>{truncate("Projetos 1, 2 e 3 • Cursos • Turmas • Investimentos", LABEL_W - 26, 10)}</text>
+        {/* ~230 px at 9.5 px: inside the 264 px name column, clear of the year ruler */}
+        <text x={18} y={62} fontSize={9.5} fill={C.text2}>Projetos 1, 2 e 3 • Cursos • Turmas • Investimentos</text>
         <line x1={0} x2={size.w} y1={HEADER} y2={HEADER} stroke={C.grid} />
 
         {/* Horizontal scrollbar over the whole horizon */}
