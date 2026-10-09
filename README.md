@@ -20,6 +20,7 @@ npm run dev            # http://localhost:5173
 npm test               # testes de cálculo temporal (vitest)
 node scripts/e2e.mjs   # roteiro de aceitação no navegador (requer `npm run dev` e Chromium)
 npm run build:single   # gera dist-single/index.html, um arquivo autocontido (Artifact, projetor offline)
+node scripts/to-artifact.mjs   # converte o build em fragmento de página para Claude Artifacts
 ```
 
 ## Arquitetura escolhida
@@ -113,8 +114,11 @@ acompanham o item, conexões, exportação SVG/PNG da timeline e Modo Design (mo
 ocultar, escalar e colorir elementos de cena, notas com seta, restaurar composição).
 
 Limitações conhecidas:
-- **PDF**: não há exportação dedicada. Use "Imprimir → Salvar como PDF" do navegador.
-  **PowerPoint**: não implementado.
+- **PDF** e **PowerPoint**: não implementados. Fora de ambientes restritos, use "Imprimir → Salvar
+  como PDF" do navegador.
+- Em visualizadores com sandbox (Claude Artifacts), downloads e `confirm()` são bloqueados. As
+  confirmações acontecem dentro da página e cada exportação abre uma janela com **Copiar conteúdo**;
+  **Importar colando JSON** completa o ciclo de backup.
 - A persistência usa o `localStorage` do navegador e vale só para esse navegador. Para backup ou
   troca de arquivos, use Exportar/Importar JSON.
 - Notas de cena vinculadas a um curso seguem a data do curso apenas na Cena 3. Nas outras cenas, a

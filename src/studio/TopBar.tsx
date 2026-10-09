@@ -9,6 +9,15 @@ import { useStudio } from "@/store/store"
 import { useEffectiveItems } from "@/store/hooks"
 import { useView, ZOOM_PRESETS, type Tool } from "@/store/view"
 import { exportSvgString } from "./TimelineCanvas"
+import { Modal } from "./Dialogs"
+import { confirmAction } from "@/components/Confirm"
+
+interface ExportOut {
+  title: string
+  filename: string
+  text?: string
+  imageUrl?: string
+}
 
 function download(name: string, data: string | Blob, type = "application/json") {
   const blob = typeof data === "string" ? new Blob([data], { type }) : data
@@ -54,6 +63,8 @@ export function TopBar() {
   const items = useEffectiveItems()
   const fileRef = useRef<HTMLInputElement>(null)
   const [menu, setMenu] = useState<"export" | "filter" | null>(null)
+  const [out, setOut] = useState<ExportOut | null>(null)
+  const [pasteOpen, setPasteOpen] = useState(false)
   const scenarioKind = doc.scenarios.find((s) => s.id === st.scenarioId)?.kind
 
   const fitAll = () => {
@@ -67,7 +78,7 @@ export function TopBar() {
     <header className="relative z-30 flex h-12 shrink-0 items-center gap-1 border-b bg-panel px-2">
       <div className="flex items-center gap-2 pr-2 pl-1">
         <Logo />
-        <div className="leading-tight">
+        <div className="hidden leading-tight sm:block">
           <div className="text-[10px] font-semibold tracking-[0.18em] whitespace-nowrap text-muted-foreground">SKA TECH HUB · TEMPORAL STUDIO</div>
           <input
             aria-label="Nome do planejamento"
@@ -77,7 +88,7 @@ export function TopBar() {
           />
         </div>
       </div>
-      <Divider />
+      <Divider className="hidden sm:block" />
       <Button size="icon" variant="ghost" title="Salvar (Ctrl+S)" onClick={st.save}>
         <Save className="size-4" />
       </Button>
@@ -87,6 +98,7 @@ export function TopBar() {
       <Button size="icon" variant="ghost" title="Refazer (Ctrl+Shift+Z)" disabled={!st.future.length} onClick={st.redo}>
         <Redo2 className="size-4" />
       </Button>
+      <div className="hidden items-center gap-1 xl:flex">
       <Divider />
       {TOOLS.map((t) => (
         <Button key={t.id} size="icon" variant="ghost" active={view.tool === t.id} title={`${t.label} (${t.key})`} onClick={() => view.set({ tool: t.id, connectFrom: null })}>
@@ -154,8 +166,9 @@ export function TopBar() {
           </Menu>
         )}
       </div>
+      </div>
 
-      <div className="ml-auto flex items-center gap-1.5">
+      <div className="ml-auto flex min-w-0 items-center gap-1.5">
         <div className={cn("flex items-center gap-1.5 rounded-md border px-1.5 py-1", scenarioKind === "baseline" ? "border-border" : "border-[#C4B5FD]/60 bg-[#C4B5FD]/10")}>
           <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wider", scenarioKind === "baseline" ? "bg-white/10 text-foreground" : "bg-[#C4B5FD] text-[#1b1240]")}>
             {scenarioKind === "baseline" ? "BASE" : "HIPÓTESE"}
@@ -179,14 +192,28 @@ export function TopBar() {
           </Button>
           {menu === "export" && (
             <Menu onClose={() => setMenu(null)} right>
-              <MenuItem icon={FileJson} onClick={() => download(`ska-temporal-studio-${new Date().toISOString().slice(0, 10)}.json`, st.exportJSON())}>Exportar JSON (backup completo)</MenuItem>
-              <MenuItem icon={Upload} onClick={() => fileRef.current?.click()}>Importar JSON…</MenuItem>
+              <MenuItem
+                icon={FileJson}
+                onClick={() => {
+                  const filename = `ska-temporal-studio-${new Date().toISOString().slice(0, 10)}.json`
+                  const text = st.exportJSON()
+                  download(filename, text)
+                  setOut({ title: "Backup JSON", filename, text })
+                }}
+              >
+                Exportar JSON (backup completo)
+              </MenuItem>
+              <MenuItem icon={Upload} onClick={() => fileRef.current?.click()}>Importar arquivo JSON…</MenuItem>
+              <MenuItem icon={Upload} onClick={() => setPasteOpen(true)}>Importar colando JSON…</MenuItem>
               <div className="my-1 border-t" />
               <MenuItem
                 icon={ImageIcon}
                 onClick={() => {
                   const s = exportSvgString()
-                  if (s) download("timeline.svg", s, "image/svg+xml")
+                  if (s) {
+                    download("timeline.svg", s, "image/svg+xml")
+                    setOut({ title: "Timeline (SVG)", filename: "timeline.svg", text: s, imageUrl: URL.createObjectURL(new Blob([s], { type: "image/svg+xml" })) })
+                  }
                   st.log({ label: "exportar SVG", kind: "io", status: s ? "ok" : "error" })
                 }}
               >
@@ -200,7 +227,10 @@ export function TopBar() {
                   if (!s || !el) return
                   try {
                     const png = await svgToPng(s, el.clientWidth, el.clientHeight)
-                    if (png) download("timeline.png", png)
+                    if (png) {
+                      download("timeline.png", png)
+                      setOut({ title: "Timeline (PNG)", filename: "timeline.png", imageUrl: URL.createObjectURL(png) })
+                    }
                     st.log({ label: "exportar PNG", kind: "io", status: "ok" })
                   } catch {
                     st.toast("Não foi possível gerar o PNG neste navegador. Use o SVG.", "warn")
@@ -210,9 +240,9 @@ export function TopBar() {
               >
                 Exportar timeline (PNG)
               </MenuItem>
-              <div className="px-3 py-1.5 text-[10.5px] leading-snug text-muted-foreground">PDF: use “Imprimir → Salvar como PDF” do navegador no Modo Diretoria. Exportação para PowerPoint não implementada.</div>
+              <div className="px-3 py-1.5 text-[10.5px] leading-snug text-muted-foreground">Exportação em PDF e PowerPoint não implementada.</div>
               <div className="my-1 border-t" />
-              <MenuItem icon={RotateCcw} onClick={() => window.confirm("Restaurar os dados iniciais? (é possível desfazer)") && st.resetToSeed()}>Restaurar dados iniciais</MenuItem>
+              <MenuItem icon={RotateCcw} onClick={async () => (await confirmAction("Restaurar os dados iniciais? (é possível desfazer)")) && st.resetToSeed()}>Restaurar dados iniciais</MenuItem>
             </Menu>
           )}
           <input
@@ -232,6 +262,8 @@ export function TopBar() {
           <Presentation className="size-4" /> Modo Diretoria
         </Button>
       </div>
+      {out && <ExportDialog out={out} onClose={() => setOut(null)} />}
+      {pasteOpen && <PasteImport onClose={() => setPasteOpen(false)} />}
     </header>
   )
 }
@@ -268,5 +300,54 @@ export function Logo({ size = 28 }: { size?: number }) {
       <rect x="13" y="19.8" width="13" height="3.2" rx="1.6" fill="#ffffff" fillOpacity="0.55" />
       <circle cx="24" cy="10.6" r="2.6" fill="#FF7A1A" />
     </svg>
+  )
+}
+
+/** Shows the exported content in the page too: downloads are blocked in some sandboxed viewers. */
+function ExportDialog({ out, onClose }: { out: ExportOut; onClose: () => void }) {
+  const [copied, setCopied] = useState(false)
+  const ref = useRef<HTMLTextAreaElement>(null)
+  return (
+    <Modal title={out.title} onClose={onClose} width={560}>
+      <p className="text-[12px] leading-snug text-muted-foreground">
+        O download de <span className="font-mono text-foreground">{out.filename}</span> foi iniciado. Se o navegador bloquear downloads aqui,
+        {out.text ? " copie o conteúdo abaixo e salve-o em um arquivo." : " clique com o botão direito na imagem e salve-a."}
+      </p>
+      {out.imageUrl && <img src={out.imageUrl} alt="Pré-visualização da timeline exportada" className="max-h-[220px] w-full rounded border object-contain" />}
+      {out.text && <textarea ref={ref} readOnly className="field h-[180px] font-mono !text-[11px]" value={out.text.length > 200_000 ? out.text.slice(0, 200_000) + "\n…" : out.text} />}
+      <div className="flex justify-end gap-2">
+        {out.text && (
+          <Button
+            onClick={() => {
+              navigator.clipboard.writeText(out.text!).then(
+                () => setCopied(true),
+                () => {
+                  ref.current?.select()
+                  setCopied(false)
+                },
+              )
+            }}
+          >
+            {copied ? "Copiado" : "Copiar conteúdo"}
+          </Button>
+        )}
+        <Button variant="primary" onClick={onClose}>Fechar</Button>
+      </div>
+    </Modal>
+  )
+}
+
+function PasteImport({ onClose }: { onClose: () => void }) {
+  const [text, setText] = useState("")
+  const importJSON = useStudio((s) => s.importJSON)
+  return (
+    <Modal title="Importar colando JSON" onClose={onClose} width={560}>
+      <p className="text-[12px] text-muted-foreground">Cole aqui um backup exportado pelo Temporal Studio. A importação pode ser desfeita.</p>
+      <textarea id="paste-import" className="field h-[200px] font-mono !text-[11px]" value={text} onChange={(e) => setText(e.target.value)} placeholder='{"schema": "ska-temporal-studio/1", …}' />
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" onClick={onClose}>Cancelar</Button>
+        <Button variant="primary" disabled={!text.trim()} onClick={() => importJSON(text) && onClose()}>Importar</Button>
+      </div>
+    </Modal>
   )
 }

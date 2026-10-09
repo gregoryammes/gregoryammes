@@ -22,6 +22,7 @@
   --panel: #0a1430;
   --panel-2: #0e1a3a;
   --canvas: #060d20;
+  color-scheme: dark;
 }
 
 @theme inline {

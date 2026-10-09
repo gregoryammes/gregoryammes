@@ -2,7 +2,6 @@ import { useMemo, useRef } from "react"
 import { Activity, ChevronDown, ChevronUp } from "lucide-react"
 import { AgentTrace, type TraceSpan } from "@/components/ui/agent-trace"
 import { dayOf, fmtDate, fromDay, fmtMonthsSpan, ymd } from "@/lib/dates"
-import { LABEL_W } from "@/lib/layout"
 import { cn } from "@/lib/utils"
 import { useStudio } from "@/store/store"
 import { useAnalysis, useProjectColor } from "@/store/hooks"
@@ -70,7 +69,7 @@ export function BottomBar() {
 
   return (
     <div className="shrink-0 border-t bg-panel">
-      <div className="flex h-[76px] items-stretch gap-2 px-2 py-2" style={{ paddingLeft: LABEL_W > 0 ? 8 : 0 }}>
+      <div className="scroll-thin flex h-[76px] items-stretch gap-2 overflow-x-auto px-2 py-2">
         <Kpi label="Em execução" value={indicators.projectsRunning.length} sub={indicators.projectsRunning.map((p) => p.name.split(" — ")[0]).join(", ") || "—"} />
         <Kpi label="Planejamento" value={indicators.projectsPlanned.length} sub="propostas / hipóteses" />
         <Kpi label="Cursos ativos" value={indicators.coursesRunning.length} sub={`em ${String(ref.d).padStart(2, "0")}/${String(ref.m).padStart(2, "0")}/${ref.y}`} />
@@ -78,7 +77,7 @@ export function BottomBar() {
         <Kpi label="Bolsas futuras" value={indicators.futureGrants.length} sub="períodos registrados" />
         <Kpi label="Decisões" value={indicators.pendingDecisions} sub="ver Modo Diretoria" />
         <Kpi label="Valores doc." value={indicators.documentedValue == null ? "—" : indicators.documentedValue.toLocaleString("pt-BR")} sub={indicators.documentedValue == null ? `nenhum conciliado (${indicators.undocumentedValues.length} a validar)` : "comprovado/formalizado"} />
-        <div className="flex w-[240px] shrink-0 flex-col gap-1">
+        <div className="hidden w-[240px] shrink-0 flex-col gap-1 md:flex">
           <MiniMap />
           <button className={cn("flex items-center justify-center gap-1.5 rounded-md text-[11px] text-muted-foreground hover:bg-white/5 hover:text-foreground", view.showTrace && "text-primary")} onClick={() => view.set({ showTrace: !view.showTrace })}>
             <Activity className="size-3" /> Rastro da sessão ({audit.length}) {view.showTrace ? <ChevronDown className="size-3" /> : <ChevronUp className="size-3" />}
@@ -108,7 +107,7 @@ export function BottomBar() {
 
 function Kpi({ label, value, sub, tone, wide }: { label: string; value: number | string; sub: string; tone?: "accent"; wide?: boolean }) {
   return (
-    <div className={cn("flex min-w-0 flex-col justify-center rounded-md border px-3", wide ? "flex-[1.6]" : "flex-1", tone === "accent" && "border-accent/40 bg-accent/8")}>
+    <div className={cn("flex min-w-[96px] flex-col justify-center rounded-md border px-3", wide ? "flex-[1.6]" : "flex-1", tone === "accent" && "border-accent/40 bg-accent/8")}>
       <div className="truncate text-[10.5px] font-semibold text-muted-foreground">{label}</div>
       <div className={cn("font-mono text-xl leading-tight font-semibold tabular-nums", tone === "accent" && "text-accent")}>{value}</div>
       <div className="truncate text-[10.5px] text-muted-foreground">{sub}</div>

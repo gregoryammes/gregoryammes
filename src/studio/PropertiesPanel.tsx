@@ -6,6 +6,7 @@ import { describeAfter, type EffItem } from "@/lib/analysis"
 import { brl, itemColor } from "@/lib/visual"
 import { CERTAINTY_LABEL, KIND_LABEL, LAYERS, type Annotation, type Certainty, type Item, type ItemKind } from "@/data/types"
 import { useStudio } from "@/store/store"
+import { confirmAction } from "@/components/Confirm"
 import { useAnalysis, useActiveScenario } from "@/store/hooks"
 import { useView } from "@/store/view"
 
@@ -20,7 +21,7 @@ export function PropertiesPanel() {
   const ann = doc.annotations.find((a) => a.id === selAnn)
 
   return (
-    <aside className="scroll-thin flex w-[300px] shrink-0 flex-col overflow-y-auto border-l bg-panel">
+    <aside className="scroll-thin hidden w-[300px] shrink-0 flex-col overflow-y-auto border-l bg-panel lg:flex">
       {ann ? (
         <AnnotationProps a={ann} items={items} />
       ) : sel.length === 1 ? (
@@ -164,7 +165,7 @@ function ItemProps({ it }: { it: EffItem }) {
           <Button size="sm" variant="ghost" title={it.locked ? "Desbloquear" : "Bloquear"} onClick={() => st.commit(it.locked ? "desbloquear" : "bloquear", (d) => ({ ...d, items: d.items.map((x) => (x.id === it.id ? { ...x, locked: !it.locked } : x)) }))}>
             {it.locked ? <Unlock className="size-3.5" /> : <Lock className="size-3.5" />}
           </Button>
-          <Button size="sm" variant="danger" className="ml-auto" title="Excluir" onClick={() => window.confirm(`Excluir “${it.name}”? (é possível desfazer)`) && st.deleteItems([it.id])}>
+          <Button size="sm" variant="danger" className="ml-auto" title="Excluir" onClick={async () => (await confirmAction(`Excluir “${it.name}”? (é possível desfazer)`)) && st.deleteItems([it.id])}>
             <Trash2 className="size-3.5" />
           </Button>
         </div>
@@ -332,7 +333,7 @@ function Multi({ items }: { items: EffItem[] }) {
       <p className="text-[11px] text-muted-foreground">Arraste qualquer barra para deslocar o grupo mantendo as durações. ←/→ desloca por unidade de encaixe.</p>
       <div className="flex gap-1">
         <Button size="sm" onClick={() => st.duplicateItems(items.map((i) => i.id))}><Copy className="size-3" /> Duplicar</Button>
-        <Button size="sm" variant="danger" onClick={() => window.confirm(`Excluir ${items.length} elementos? (é possível desfazer)`) && st.deleteItems(items.map((i) => i.id))}>
+        <Button size="sm" variant="danger" onClick={async () => (await confirmAction(`Excluir ${items.length} elementos? (é possível desfazer)`)) && st.deleteItems(items.map((i) => i.id))}>
           <Trash2 className="size-3" /> Excluir
         </Button>
       </div>

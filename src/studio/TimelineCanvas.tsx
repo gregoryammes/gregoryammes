@@ -10,6 +10,7 @@ import { useStudio, uid } from "@/store/store"
 import { useCompareItems, useEffectiveItems, useProjectColor } from "@/store/hooks"
 import { useView } from "@/store/view"
 import type { Annotation } from "@/data/types"
+import { confirmAction } from "@/components/Confirm"
 
 type Gesture =
   | {
@@ -118,9 +119,11 @@ export function TimelineCanvas() {
         st.save()
       } else if (e.key === "Delete" || e.key === "Backspace") {
         if (st.selectedAnnotation) {
-          if (window.confirm("Excluir a anotação selecionada?")) st.deleteAnnotation(st.selectedAnnotation)
-        } else if (st.selection.length && window.confirm(`Excluir ${st.selection.length} elemento(s)? (é possível desfazer)`)) {
-          st.deleteItems(st.selection)
+          const id = st.selectedAnnotation
+          confirmAction("Excluir a anotação selecionada?").then((ok) => ok && st.deleteAnnotation(id))
+        } else if (st.selection.length) {
+          const ids = st.selection
+          confirmAction(`Excluir ${ids.length} elemento(s)? (é possível desfazer)`).then((ok) => ok && st.deleteItems(ids))
         }
       } else if (e.key === "Escape") {
         st.select([])

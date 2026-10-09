@@ -152,6 +152,7 @@ await page.getByRole("button", { name: "Exportar", exact: true }).click()
 const [dl] = await Promise.all([page.waitForEvent("download"), page.getByText("Exportar JSON (backup completo)").click()])
 const file = `${OUT}/backup.json`
 await dl.saveAs(file)
+await page.getByRole("button", { name: "Fechar", exact: true }).last().click()
 const json = JSON.parse(fs.readFileSync(file, "utf8"))
 ok("T10 exportar JSON", json.schema === "ska-temporal-studio/1" && json.items.some((i) => i.name === "Curso E2E"))
 await page.evaluate(() => window.__studio.getState().resetToSeed())

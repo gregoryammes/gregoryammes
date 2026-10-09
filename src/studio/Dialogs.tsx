@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { addMonths, fromDay, isValidISO, startOfMonth, toDay } from "@/lib/dates"
@@ -9,9 +9,14 @@ import { useView } from "@/store/view"
 import { DateRangeFields } from "./PropertiesPanel"
 
 export function Modal({ title, onClose, children, width = 440 }: { title: string; onClose: () => void; children: React.ReactNode; width?: number }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [onClose])
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]" onMouseDown={onClose}>
-      <div role="dialog" aria-modal="true" aria-label={title} className="rounded-xl border bg-panel-2 shadow-2xl shadow-black/60" style={{ width }} onMouseDown={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-label={title} className="rounded-xl border bg-panel-2 shadow-2xl shadow-black/60" style={{ width, maxWidth: "100%" }} onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h2 className="text-sm font-semibold">{title}</h2>
           <button aria-label="Fechar" className="rounded p-1 text-muted-foreground hover:bg-white/10" onClick={onClose}><X className="size-4" /></button>

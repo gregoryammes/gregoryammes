@@ -28,7 +28,7 @@ const GROUPS: { kind: ItemKind | "anotacao" | "conexao"; label: string }[] = [
 export function LeftSidebar({ onCreate }: { onCreate: (kind: ItemKind) => void }) {
   const [tab, setTab] = useState<Tab>("elementos")
   return (
-    <aside className="flex w-[264px] shrink-0 flex-col border-r bg-panel">
+    <aside className="hidden w-[264px] shrink-0 flex-col border-r bg-panel md:flex">
       <div className="flex gap-0.5 border-b p-1.5">
         {(["elementos", "camadas", "cenarios"] as Tab[]).map((t) => (
           <button

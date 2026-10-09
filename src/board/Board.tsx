@@ -11,6 +11,7 @@ import { Scene2 } from "./Scene2"
 import { Scene3 } from "./Scene3"
 import { Scene4 } from "./Scene4"
 import { Logo } from "@/studio/TopBar"
+import { confirmAction } from "@/components/Confirm"
 
 const SCENES = [
   { title: "Evolução", C: Scene1 },
@@ -94,7 +95,7 @@ export default function Board() {
             <Button size="sm" variant="ghost" onClick={() => useStudio.getState().addSceneNote({ id: uid("note"), scene, text: "Nova nota", x: 760, y: 470, arrow: false })}>
               <StickyNote className="size-3.5" /> Nota
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => window.confirm("Restaurar a composição original desta cena?") && useStudio.getState().resetLayout(scene)}>
+            <Button size="sm" variant="ghost" onClick={async () => (await confirmAction("Restaurar a composição original desta cena?")) && useStudio.getState().resetLayout(scene)}>
               <RotateCcw className="size-3.5" /> Composição
             </Button>
           </>

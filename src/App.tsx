@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react"
 import { Toasts } from "@/components/Toasts"
+import { ConfirmHost } from "@/components/Confirm"
 import { Studio } from "@/studio/Studio"
 import { useStudio } from "@/store/store"
 
@@ -19,6 +20,7 @@ export default function App() {
         </Suspense>
       )}
       <Toasts />
+      <ConfirmHost />
     </>
   )
 }
