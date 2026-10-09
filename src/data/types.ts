@@ -38,6 +38,38 @@ export const LAYERS: { id: LayerId; label: string; hint: string }[] = [
   { id: "cenarios", label: "Cenários", hint: "Propostas e simulações" },
 ]
 
+/**
+ * The four reading groups of the timeline (rows), each gathering one or more storage layers.
+ * `cenarios` is a legacy layer: its records are placed in a group by kind.
+ */
+export type GroupId = "g1" | "g2" | "g3" | "g4"
+
+export const GROUPS: { id: GroupId; code: string; label: string; layers: LayerId[] }[] = [
+  { id: "g1", code: "01", label: "Planejamento e vigência", layers: ["projetos", "planejamento", "vigencias"] },
+  { id: "g2", code: "02", label: "Execução educacional", layers: ["formacao"] },
+  { id: "g3", code: "03", label: "Bolsas e compromissos", layers: ["bolsas"] },
+  { id: "g4", code: "04", label: "Suporte operacional", layers: ["operacao"] },
+]
+
+export function groupOf(it: { layer: LayerId; kind: ItemKind }): GroupId {
+  const g = GROUPS.find((x) => x.layers.includes(it.layer))
+  if (g) return g.id
+  if (it.kind === "bolsa") return "g3"
+  if (it.kind === "operacao" || it.kind === "contrato") return "g4"
+  if (it.kind === "projeto" || it.kind === "planejamento" || it.kind === "vigencia" || it.kind === "marco") return "g1"
+  return "g2"
+}
+
+/** Storage layer an item takes when it is moved into a group. */
+export function layerFor(kind: ItemKind, g: GroupId): LayerId {
+  if (g === "g1") return kind === "projeto" ? "projetos" : kind === "vigencia" || kind === "marco" ? "vigencias" : "planejamento"
+  return g === "g2" ? "formacao" : g === "g3" ? "bolsas" : "operacao"
+}
+
+const DETAIL_KINDS: ItemKind[] = ["turma", "atividade", "contrato", "marco", "operacao"]
+/** Level-2 records: hidden in the clean view until their group is detailed. */
+export const isDetail = (it: { kind: ItemKind; detail?: boolean }) => it.detail ?? DETAIL_KINDS.includes(it.kind)
+
 export type ItemKind =
   | "projeto"
   | "planejamento"
@@ -115,6 +147,8 @@ export interface Item {
   color?: string
   locked?: boolean
   hidden?: boolean
+  /** Shown only when its group is in detailed view. Defaults by kind (see `isDetail`). */
+  detail?: boolean
 }
 
 export interface Project {
@@ -207,6 +241,12 @@ export interface Settings {
   layersCollapsed: LayerId[]
   boardRange: { start: number; end: number }
   cohortStartYear: number
+  layout?: "groups-v2"
+  groupsHidden?: GroupId[]
+  groupsCollapsed?: GroupId[]
+  groupsDetailed?: GroupId[]
+  /** Journey matrix: first and last cohort (year the cohort is in 9º ano). */
+  journeyCohorts?: { from: number; to: number }
 }
 
 export interface StudioDoc {

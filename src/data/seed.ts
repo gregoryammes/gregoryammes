@@ -11,9 +11,9 @@ export const COLORS = {
   corporate: "#1F4FD1",
   tech: "#2EA8FF",
   orange: "#FF7A1A",
-  p1: "#5B7FE0",
-  p2: "#2EA8FF",
-  p3: "#A78BFA",
+  p1: "#23845D",
+  p2: "#087CB8",
+  p3: "#173B63",
 }
 
 const SRC_BRIEF = "src-briefing"
@@ -55,7 +55,7 @@ export function createSeed(): StudioDoc {
       description: "Primeiro ciclo histórico do SKA Tech Hub. Período geral de referência.",
     }),
     base({
-      id: "p2-ciclo", name: "Projeto 2 — Consolidação e formação", kind: "projeto", layer: "projetos", lane: 1,
+      id: "p2-ciclo", name: "Projeto 2 — Consolidação e formação", kind: "projeto", layer: "projetos", lane: 1, detail: true,
       projectId: "p2", start: "2025-01-01", end: "2027-12-31", precision: "year", certainty: "a_validar",
       description: "Ciclo atual. Período geral de referência 2025–2027.",
       finance: {
@@ -65,7 +65,7 @@ export function createSeed(): StudioDoc {
       sourceIds: [SRC_BRIEF, SRC_BUDGET],
     }),
     base({
-      id: "p3-ciclo", name: "Projeto 3 — Continuidade e inovação (proposta)", kind: "projeto", layer: "projetos", lane: 2,
+      id: "p3-ciclo", name: "Projeto 3 — Continuidade e inovação (proposta)", kind: "projeto", layer: "projetos", lane: 6,
       projectId: "p3", start: "2027-07-01", end: "2030-06-30", precision: "month", certainty: "hipotese",
       contractStatus: "nao_confirmado",
       description: "Proposta em desenvolvimento: continuidade formativa, pesquisa aplicada, inovação, IA. Duração-hipótese de 36 meses, início simulado.",
@@ -74,12 +74,12 @@ export function createSeed(): StudioDoc {
 
     // ── Planejamento ─────────────────────────────────────────────────────────
     base({
-      id: "p2-plano", name: "Planejamento original — Projeto 2", kind: "planejamento", layer: "planejamento", lane: 0,
+      id: "p2-plano", name: "Planejamento original — Projeto 2", kind: "planejamento", layer: "planejamento", lane: 2,
       projectId: "p2", start: "2025-01-01", end: "2026-12-31", certainty: "planejado",
       description: "Planejamento original previa atividades entre janeiro/2025 e dezembro/2026.",
     }),
     base({
-      id: "p2-operacional", name: "Período operacional (materiais anteriores)", kind: "planejamento", layer: "planejamento", lane: 1,
+      id: "p2-operacional", name: "Período operacional (materiais anteriores)", kind: "planejamento", layer: "planejamento", lane: 3, detail: true,
       projectId: "p2", start: "2025-07-01", end: "2027-06-30", certainty: "a_validar",
       description: "Período jul/2025–jun/2027 existente em materiais anteriores.",
       notes: "Conciliar documentalmente com o marco de 31/05/2025 — não presumir mesma natureza.",
@@ -88,7 +88,7 @@ export function createSeed(): StudioDoc {
 
     // ── Vigências ────────────────────────────────────────────────────────────
     base({
-      id: "p2-vigencia", name: "Vigência de referência — Projeto 2", kind: "vigencia", layer: "vigencias", lane: 0,
+      id: "p2-vigencia", name: "Vigência de referência — Projeto 2", kind: "vigencia", layer: "vigencias", lane: 4,
       projectId: "p2", start: "2025-05-31", end: "2027-06-30", precision: "day", certainty: "a_validar",
       contractStatus: "a_validar",
       description: "Encerramento de referência 30/06/2027, sujeito à validação do instrumento e de eventuais aditivos.",
@@ -96,7 +96,7 @@ export function createSeed(): StudioDoc {
       sourceIds: [SRC_BRIEF, SRC_INSTR],
     }),
     base({
-      id: "p2-marco-0531", name: "Marco de 31/05/2025 (natureza a conciliar)", kind: "marco", layer: "vigencias", lane: 1,
+      id: "p2-marco-0531", name: "Marco de 31/05/2025 (natureza a conciliar)", kind: "marco", layer: "vigencias", lane: 5,
       projectId: "p2", start: "2025-05-31", end: "2025-05-31", precision: "day", certainty: "a_validar",
       description: "Marco informado no histórico de referência. Assinatura, aprovação ou início de vigência? A conciliar.",
     }),
@@ -137,7 +137,7 @@ export function createSeed(): StudioDoc {
 
     // ── Cenários ─────────────────────────────────────────────────────────────
     base({
-      id: "t2", name: "Curso Técnico 2 — cenário", kind: "curso", layer: "cenarios", lane: 0,
+      id: "t2", name: "Curso Técnico 2 — cenário", kind: "curso", layer: "formacao", lane: 5,
       projectId: "p2", start: "2027-02-01", end: "2028-12-31", certainty: "hipotese",
       contractStatus: "nao_confirmado",
       finance: { planned: null, paid: null, status: "nao_informado" },
@@ -145,7 +145,7 @@ export function createSeed(): StudioDoc {
       notes: "Pendente de confirmação contratual e de definição de execução. Início em fev/2027 é hipótese de simulação. Não afirmar contratação.",
     }),
     base({
-      id: "t2-bolsas", name: "Bolsas — Técnico 2 (cenário)", kind: "bolsa", layer: "cenarios", lane: 1,
+      id: "t2-bolsas", name: "Bolsas — Técnico 2 (cenário)", kind: "bolsa", layer: "bolsas", lane: 1,
       projectId: "p2", parentId: "t2", start: "2027-02-01", end: "2028-12-31", certainty: "hipotese",
       conditions: "Condicionadas à contratação do curso e aos critérios aplicáveis.",
     }),
@@ -159,6 +159,11 @@ export function createSeed(): StudioDoc {
       snap: "month",
       layersHidden: [],
       layersCollapsed: [],
+      layout: "groups-v2",
+      groupsHidden: [],
+      groupsCollapsed: [],
+      groupsDetailed: [],
+      journeyCohorts: { from: 2022, to: 2026 },
       boardRange: { start: 2023, end: 2030 },
       cohortStartYear: 2024,
     },

@@ -5,12 +5,12 @@ type Variant = "default" | "primary" | "ghost" | "outline" | "accent" | "danger"
 type Size = "sm" | "md" | "icon"
 
 const VARIANTS: Record<Variant, string> = {
-  default: "bg-muted text-foreground hover:bg-[#1b2c57]",
-  primary: "bg-primary text-primary-foreground hover:brightness-110",
-  accent: "bg-accent text-[#1a0b00] hover:brightness-110",
-  ghost: "bg-transparent text-foreground/85 hover:bg-white/5",
-  outline: "border border-border bg-transparent text-foreground hover:bg-white/5",
-  danger: "bg-destructive/15 text-[#ff9ea1] hover:bg-destructive/25",
+  default: "border border-border bg-card text-foreground hover:bg-muted",
+  primary: "bg-primary text-primary-foreground hover:bg-[#066a9e]",
+  accent: "bg-navy text-white hover:bg-[#10304f]",
+  ghost: "bg-transparent text-foreground hover:bg-muted",
+  outline: "border border-border bg-card text-foreground hover:bg-muted",
+  danger: "border border-destructive/30 bg-card text-destructive hover:bg-destructive/8",
 }
 const SIZES: Record<Size, string> = {
   sm: "h-7 px-2.5 text-xs gap-1.5",
@@ -32,7 +32,7 @@ export function Button({ variant = "default", size = "md", active, className, ..
       className={cn(
         "inline-flex shrink-0 cursor-pointer items-center rounded-md font-medium whitespace-nowrap transition-[background,filter,color] duration-150 outline-none",
         "focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-40",
-        "data-[active=true]:bg-primary/20 data-[active=true]:text-primary",
+        "data-[active=true]:bg-primary/10 data-[active=true]:text-primary",
         VARIANTS[variant],
         SIZES[size],
         className,

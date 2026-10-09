@@ -41,11 +41,11 @@ await page.reload({ waitUntil: "networkidle" })
 await page.waitForTimeout(600)
 
 // T5 first, on pristine data: continuity after the vigência is visible.
-ok("T5 continuidade (Técnico 1 após vigência)", await page.locator("#timeline-svg text", { hasText: "+6 m após vigência" }).count() >= 1)
+ok("T5 continuidade (Técnico 1 após vigência)", (await page.locator("#timeline-svg text", { hasText: /^\+6 m$|6 meses após a vigência/ }).count()) >= 1)
 await page.screenshot({ path: `${OUT}/01-studio.png` })
 
 // T1 create a course
-await page.getByTitle("Novo: Curso").click()
+await page.getByRole("button", { name: "Novo: Curso" }).click()
 await page.locator('[role=dialog] input').first().fill("Curso E2E")
 await page.locator('[role=dialog] input[type=date]').nth(0).fill("2026-03-01")
 await page.locator('[role=dialog] input[type=date]').nth(1).fill("2026-11-30")
@@ -90,8 +90,9 @@ await page.waitForTimeout(100)
 await drag('#timeline-svg rect[data-hit=item-r][data-id=p2-vigencia]', 160)
 const v = await S()
 ok("T4 vigência alterada só no cenário", v.scenarioId === "working" && v.vigBase.end === "2027-06-30" && v.vigWork?.end && v.vigWork.end > "2027-06-30", `base ${v.vigBase.end} · trabalho ${v.vigWork?.end}`)
-const overText = await page.locator("#timeline-svg text", { hasText: "após vigência" }).allTextContents()
-ok("T4 sobreposição recalculada", !overText.some((t) => t.startsWith("+6 m")), overText.join(" | "))
+const hypRow = await page.locator("#timeline-svg text", { hasText: "Vigência — cenário simulado" }).count()
+const hypCaption = await page.locator("#timeline-svg text", { hasText: "cenário simulado (não aprovado)" }).count()
+ok("T4 vigência simulada em linha própria, distinta da documental", hypRow === 1 && hypCaption === 1)
 await page.screenshot({ path: `${OUT}/02-scenario.png` })
 
 // T6 presentation matches the active scenario
@@ -100,12 +101,12 @@ const expected = await page.evaluate(() => {
   const sc = s.doc.scenarios.find((x) => x.id === s.scenarioId)
   return { ...s.doc.items.find((i) => i.id === "p2-vigencia"), ...sc.overrides["p2-vigencia"] }.end.split("-").reverse().join("/")
 })
-await page.getByRole("button", { name: /Modo Diretoria/ }).click()
+await page.getByRole("button", { name: "Apresentar", exact: true }).click()
 await page.waitForTimeout(900)
 await page.keyboard.press("3")
 await page.waitForTimeout(1200)
-const kpi = await page.locator("text=Encerramento da vigência").locator("..").innerText()
-ok("T6 Diretoria = cenário ativo", kpi.includes(expected) && (await page.locator("text=SIMULAÇÃO").count()) > 0, `${expected}`)
+const cap = await page.locator("svg text", { hasText: "cenário simulado" }).first().textContent()
+ok("T6 Diretoria = cenário ativo", !!cap && cap.includes(expected) && (await page.locator("text=SIMULAÇÃO").count()) > 0, `${expected}`)
 await page.screenshot({ path: `${OUT}/03-board-scenario.png` })
 
 // back to baseline for the narrative
@@ -114,15 +115,15 @@ await page.waitForTimeout(500)
 
 // T7 explain vigência
 await page.getByRole("button", { name: /EXPLICAR VIGÊNCIA/ }).click()
-for (let i = 0; i < 7; i++) {
+for (let i = 0; i < 5; i++) {
   await page.keyboard.press("ArrowRight")
   await page.waitForTimeout(250)
 }
 await page.waitForTimeout(1000)
-ok("T7 Explicar Vigência (8 etapas)", (await page.locator("text=Etapa 8 de 8").count()) === 1 && (await page.locator("text=Necessidades de análise e decisão").count()) === 1)
+ok("T7 Explicar Vigência (6 etapas)", (await page.locator("text=Etapa 6 de 6").count()) === 1 && (await page.locator("text=O que precisa ser decidido").count()) >= 1)
 await page.screenshot({ path: `${OUT}/04-explain.png` })
 await page.getByRole("button", { name: "Voltar" }).click()
-ok("T7 reversível", (await page.locator("text=Etapa 7 de 8").count()) === 1)
+ok("T7 reversível", (await page.locator("text=Etapa 5 de 6").count()) === 1)
 await page.keyboard.press("Escape")
 
 // T8 edit course in Studio → board updates
@@ -130,13 +131,13 @@ await page.getByRole("button", { name: /Estúdio/ }).click()
 await page.waitForTimeout(300)
 await page.evaluate(() => window.__studio.getState().select(["t1"]))
 await page.waitForTimeout(200)
-const endInput = page.locator("aside input[type=date]").nth(1)
+const endInput = page.locator("aside[aria-label=Propriedades] input[type=date]").nth(1)
 await endInput.fill("2028-03-31")
 await endInput.blur()
 await page.waitForTimeout(200)
-await page.getByRole("button", { name: /Modo Diretoria/ }).click()
+await page.getByRole("button", { name: "Apresentar", exact: true }).click()
 await page.waitForTimeout(1300)
-const t1kpi = await page.locator("text=Formação após a vigência").first().locator("..").innerText()
+const t1kpi = await page.locator("p", { hasText: "meses-calendário" }).first().innerText()
 ok("T8 sincronização Estúdio → Diretoria", t1kpi.includes("9 meses") && t1kpi.includes("jul/2027 a mar/2028"), t1kpi.replace(/\n/g, " "))
 await page.screenshot({ path: `${OUT}/05-board-sync.png` })
 await page.getByRole("button", { name: /Estúdio/ }).click()
@@ -152,7 +153,7 @@ await page.getByRole("button", { name: "Exportar", exact: true }).click()
 const [dl] = await Promise.all([page.waitForEvent("download"), page.getByText("Exportar JSON (backup completo)").click()])
 const file = `${OUT}/backup.json`
 await dl.saveAs(file)
-await page.getByRole("button", { name: "Fechar", exact: true }).last().click()
+await page.getByRole("dialog").getByRole("button", { name: "Fechar", exact: true }).last().click()
 const json = JSON.parse(fs.readFileSync(file, "utf8"))
 ok("T10 exportar JSON", json.schema === "ska-temporal-studio/1" && json.items.some((i) => i.name === "Curso E2E"))
 await page.evaluate(() => window.__studio.getState().resetToSeed())

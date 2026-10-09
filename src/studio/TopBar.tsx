@@ -1,13 +1,14 @@
 import { useRef, useState } from "react"
 import {
-  ChevronDown, Download, FileJson, Filter, Hand, Image as ImageIcon, Link2, Maximize2, MousePointer2, Presentation,
-  Redo2, RotateCcw, Save, StickyNote, Undo2, Upload, ZoomIn, ZoomOut,
+  CalendarRange, ChevronDown, Download, FileJson, Filter, GanttChart, Image as ImageIcon, Maximize2, Presentation,
+  Redo2, RotateCcw, Save, Undo2, Upload, Users, ZoomIn, ZoomOut,
 } from "lucide-react"
-import { Button, Divider } from "@/components/ui/button"
+import { Button } from "@/components/ui/button"
+import { GROUPS } from "@/data/types"
 import { cn } from "@/lib/utils"
 import { useStudio } from "@/store/store"
 import { useEffectiveItems } from "@/store/hooks"
-import { useView, ZOOM_PRESETS, type Tool } from "@/store/view"
+import { RANGE_PRESETS, useView } from "@/store/view"
 import { exportSvgString } from "./TimelineCanvas"
 import { Modal } from "./Dialogs"
 import { confirmAction } from "@/components/Confirm"
@@ -49,143 +50,161 @@ async function svgToPng(svg: string, w: number, h: number): Promise<Blob | null>
   return new Promise((res) => c.toBlob((b) => res(b), "image/png"))
 }
 
-const TOOLS: { id: Tool; icon: typeof Hand; label: string; key: string }[] = [
-  { id: "select", icon: MousePointer2, label: "Selecionar", key: "V" },
-  { id: "hand", icon: Hand, label: "Mover tela", key: "H" },
-  { id: "note", icon: StickyNote, label: "Anotação", key: "N" },
-  { id: "connect", icon: Link2, label: "Conectar", key: "C" },
-]
-
 export function TopBar() {
   const doc = useStudio((s) => s.doc)
   const st = useStudio()
   const view = useView()
   const items = useEffectiveItems()
   const fileRef = useRef<HTMLInputElement>(null)
-  const [menu, setMenu] = useState<"export" | "filter" | null>(null)
+  const [menu, setMenu] = useState<"export" | "filter" | "range" | null>(null)
   const [out, setOut] = useState<ExportOut | null>(null)
   const [pasteOpen, setPasteOpen] = useState(false)
-  const scenarioKind = doc.scenarios.find((s) => s.id === st.scenarioId)?.kind
+  const [custom, setCustom] = useState({ from: 2024, to: 2029 })
+  const scenario = doc.scenarios.find((s) => s.id === st.scenarioId)
+  const isBase = scenario?.kind === "baseline"
 
   const fitAll = () => {
     const vis = items.filter((i) => !i.hidden)
     if (vis.length) view.fit(Math.min(...vis.map((i) => i.range.start)), Math.max(...vis.map((i) => i.range.end)))
+    view.set({ range: null })
   }
-  const preset = Object.entries(ZOOM_PRESETS).reduce((best, [k, v]) =>
-    Math.abs(Math.log(v.pxPerDay / view.pxPerDay)) < Math.abs(Math.log(ZOOM_PRESETS[best as keyof typeof ZOOM_PRESETS].pxPerDay / view.pxPerDay)) ? k : best, "anual")
+  const preset = RANGE_PRESETS.find((p) => view.range && p.from === view.range.from && p.to === view.range.to)
+  const rangeLabel = preset ? preset.label : view.range ? `${view.range.from}–${view.range.to} · personalizado` : "Intervalo livre"
 
   return (
-    <header className="relative z-30 flex h-12 shrink-0 items-center gap-1 border-b bg-panel px-2">
-      <div className="flex items-center gap-2 pr-2 pl-1">
+    <header className="relative z-30 flex h-[52px] shrink-0 items-center gap-3 border-b bg-white px-3">
+      {/* Left: identity + active scenario */}
+      <div className="flex min-w-0 items-center gap-2.5">
         <Logo />
         <div className="hidden leading-tight sm:block">
-          <div className="text-[10px] font-semibold tracking-[0.18em] whitespace-nowrap text-muted-foreground">SKA TECH HUB · TEMPORAL STUDIO</div>
-          <input
-            aria-label="Nome do planejamento"
-            className="w-[190px] rounded bg-transparent text-[13px] font-semibold outline-none focus:bg-white/5"
-            value={doc.meta.name}
-            onChange={(e) => st.live((d) => ({ ...d, meta: { ...d.meta, name: e.target.value } }))}
-          />
+          <div className="text-[10px] font-semibold tracking-[0.16em] whitespace-nowrap text-muted-foreground">SKA TECH HUB</div>
+          <div className="font-display text-[15px] font-bold whitespace-nowrap text-navy">Temporal Studio</div>
         </div>
-      </div>
-      <Divider className="hidden sm:block" />
-      <Button size="icon" variant="ghost" title="Salvar (Ctrl+S)" onClick={st.save}>
-        <Save className="size-4" />
-      </Button>
-      <Button size="icon" variant="ghost" title="Desfazer (Ctrl+Z)" disabled={!st.past.length} onClick={st.undo}>
-        <Undo2 className="size-4" />
-      </Button>
-      <Button size="icon" variant="ghost" title="Refazer (Ctrl+Shift+Z)" disabled={!st.future.length} onClick={st.redo}>
-        <Redo2 className="size-4" />
-      </Button>
-      <div className="hidden items-center gap-1 xl:flex">
-      <Divider />
-      {TOOLS.map((t) => (
-        <Button key={t.id} size="icon" variant="ghost" active={view.tool === t.id} title={`${t.label} (${t.key})`} onClick={() => view.set({ tool: t.id, connectFrom: null })}>
-          <t.icon className="size-4" />
-        </Button>
-      ))}
-      <Divider />
-      <Button size="icon" variant="ghost" title="Reduzir zoom" onClick={() => view.zoomAt(1 / 1.35)}>
-        <ZoomOut className="size-4" />
-      </Button>
-      <select
-        aria-label="Escala temporal"
-        className="field !w-[108px] !py-1"
-        value={preset}
-        onChange={(e) => view.setZoom(ZOOM_PRESETS[e.target.value as keyof typeof ZOOM_PRESETS].pxPerDay)}
-      >
-        {Object.entries(ZOOM_PRESETS).map(([k, v]) => (
-          <option key={k} value={k}>{v.label}</option>
-        ))}
-      </select>
-      <Button size="icon" variant="ghost" title="Ampliar zoom" onClick={() => view.zoomAt(1.35)}>
-        <ZoomIn className="size-4" />
-      </Button>
-      <Button size="sm" variant="ghost" title="Ajustar ao conteúdo (F)" onClick={fitAll}>
-        <Maximize2 className="size-3.5" /> <span className="hidden 2xl:inline">Ajustar</span>
-      </Button>
-      <label className="ml-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <span className="hidden 2xl:inline">Encaixe</span>
-        <select title="Encaixe automático"
-          className="field !w-[96px] !py-1"
-          value={doc.settings.snap}
-          onChange={(e) => st.commit("encaixe", (d) => ({ ...d, settings: { ...d.settings, snap: e.target.value as typeof d.settings.snap } }))}
+        <label
+          className={cn(
+            "ml-1 flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1",
+            isBase ? "border-border bg-white" : "border-navy/40 bg-[#EEF2F8]",
+          )}
+          title="Cenário ativo — base documental ou simulação"
         >
-          <option value="none">Livre</option>
-          <option value="day">Dia</option>
-          <option value="week">Semana</option>
-          <option value="month">Mês</option>
-          <option value="quarter">Trimestre</option>
-        </select>
-      </label>
-      <div className="relative">
-        <Button size="sm" variant="ghost" active={view.projectFilter.length > 0} onClick={() => setMenu(menu === "filter" ? null : "filter")}>
-          <Filter className="size-3.5" /> <span className="hidden 2xl:inline">Filtros</span>
-        </Button>
-        {menu === "filter" && (
-          <Menu onClose={() => setMenu(null)}>
-            <div className="px-3 pt-2 pb-1 text-[11px] font-semibold text-muted-foreground">Destacar projetos</div>
-            {doc.projects.map((p) => {
-              const on = view.projectFilter.includes(p.id)
-              return (
-                <label key={p.id} className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs hover:bg-white/5">
-                  <input type="checkbox" checked={on} onChange={() => view.set({ projectFilter: on ? view.projectFilter.filter((x) => x !== p.id) : [...view.projectFilter, p.id] })} />
-                  <span className="size-2.5 rounded-full" style={{ background: p.color }} /> {p.name} — {p.phase}
-                </label>
-              )
-            })}
-            <div className="my-1 border-t" />
-            <label className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs hover:bg-white/5">
-              <input type="checkbox" checked={view.showLinks} onChange={() => view.set({ showLinks: !view.showLinks })} /> Mostrar conexões
-            </label>
-            <label className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs hover:bg-white/5">
-              <input type="checkbox" checked={view.showAnnotations} onChange={() => view.set({ showAnnotations: !view.showAnnotations })} /> Mostrar anotações
-            </label>
-            <button className="w-full px-3 py-1.5 text-left text-xs text-primary hover:bg-white/5" onClick={() => view.set({ projectFilter: [] })}>Limpar filtros</button>
-          </Menu>
-        )}
-      </div>
+          <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wider", isBase ? "bg-muted text-muted-foreground" : "bg-navy text-white")}>
+            {isBase ? "BASE" : "CENÁRIO"}
+          </span>
+          <select aria-label="Cenário ativo" className="w-[150px] shrink-0 bg-transparent text-[12.5px] font-semibold text-foreground outline-none 2xl:w-[230px]" value={st.scenarioId} onChange={(e) => st.setScenario(e.target.value)}>
+            {doc.scenarios.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </label>
       </div>
 
-      <div className="ml-auto flex min-w-0 items-center gap-1.5">
-        <div className={cn("flex items-center gap-1.5 rounded-md border px-1.5 py-1", scenarioKind === "baseline" ? "border-border" : "border-[#C4B5FD]/60 bg-[#C4B5FD]/10")}>
-          <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wider", scenarioKind === "baseline" ? "bg-white/10 text-foreground" : "bg-[#C4B5FD] text-[#1b1240]")}>
-            {scenarioKind === "baseline" ? "BASE" : "HIPÓTESE"}
-          </span>
-          <select aria-label="Cenário ativo" className="max-w-[190px] bg-transparent text-xs font-semibold outline-none" value={st.scenarioId} onChange={(e) => st.setScenario(e.target.value)}>
-            {doc.scenarios.map((s) => (
-              <option key={s.id} value={s.id} className="bg-panel">{s.name}</option>
-            ))}
-          </select>
-          <span className="hidden text-[10px] text-muted-foreground 2xl:inline">comparar</span>
-          <select aria-label="Comparar com" className="max-w-[96px] bg-transparent text-xs outline-none" title="Comparar com outro cenário" value={st.compareId ?? ""} onChange={(e) => st.setCompare(e.target.value || null)}>
-            <option value="" className="bg-panel">—</option>
-            {doc.scenarios.filter((s) => s.id !== st.scenarioId).map((s) => (
-              <option key={s.id} value={s.id} className="bg-panel">{s.name}</option>
-            ))}
-          </select>
+      {/* Center: range, zoom, filters, views */}
+      <div className="mx-auto hidden items-center gap-1.5 lg:flex">
+        <div className="relative">
+          <Button size="sm" variant="outline" title="Intervalo temporal exibido" onClick={() => setMenu(menu === "range" ? null : "range")}>
+            <CalendarRange className="size-3.5 text-muted-foreground" /> <span className="max-w-[118px] truncate 2xl:max-w-[260px]">{rangeLabel}</span> <ChevronDown className="size-3" />
+          </Button>
+          {menu === "range" && (
+            <Menu onClose={() => setMenu(null)}>
+              {RANGE_PRESETS.map((p) => (
+                <MenuItem key={p.id} icon={CalendarRange} onClick={() => view.setRange(p.from, p.to)}>{p.label}</MenuItem>
+              ))}
+              <div className="my-1 border-t" />
+              <div className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                <div className="mb-1.5 text-[11px] font-semibold text-muted-foreground">Intervalo personalizado</div>
+                <div className="flex items-center gap-1.5">
+                  <input aria-label="Ano inicial" type="number" className="field !w-20" value={custom.from} onChange={(e) => setCustom({ ...custom, from: +e.target.value })} />
+                  <span className="text-xs text-muted-foreground">a</span>
+                  <input aria-label="Ano final" type="number" className="field !w-20" value={custom.to} onChange={(e) => setCustom({ ...custom, to: +e.target.value })} />
+                  <Button size="sm" variant="primary" onClick={() => { if (custom.to >= custom.from) { view.setRange(custom.from, custom.to); setMenu(null) } }}>Aplicar</Button>
+                </div>
+              </div>
+            </Menu>
+          )}
         </div>
+        <div className="flex items-center rounded-md border">
+          <Button size="icon" variant="ghost" className="!size-7 rounded-r-none" title="Reduzir zoom" onClick={() => { view.zoomAt(1 / 1.35); view.set({ range: null }) }}><ZoomOut className="size-3.5" /></Button>
+          <Button size="sm" variant="ghost" className="rounded-none border-x" title="Ajustar ao conteúdo cadastrado" onClick={fitAll}><Maximize2 className="size-3.5" /> <span className="hidden 2xl:inline">Ajustar</span></Button>
+          <Button size="icon" variant="ghost" className="!size-7 rounded-l-none" title="Ampliar zoom" onClick={() => { view.zoomAt(1.35); view.set({ range: null }) }}><ZoomIn className="size-3.5" /></Button>
+        </div>
+        <div className="relative">
+          <Button size="sm" variant="outline" active={view.projectFilter.length > 0 || view.detailAll} onClick={() => setMenu(menu === "filter" ? null : "filter")}>
+            <Filter className="size-3.5" /> Filtros
+          </Button>
+          {menu === "filter" && (
+            <Menu onClose={() => setMenu(null)}>
+              <div className="px-3 pt-2 pb-1 text-[11px] font-semibold text-muted-foreground">Nível de detalhe</div>
+              <div className="flex gap-1 px-3 pb-2" onClick={(e) => e.stopPropagation()}>
+                <Button size="sm" variant="outline" active={!view.detailAll} onClick={() => view.set({ detailAll: false })}>Visão limpa</Button>
+                <Button size="sm" variant="outline" active={view.detailAll} onClick={() => view.set({ detailAll: true })}>Detalhada</Button>
+              </div>
+              <div className="border-t px-3 pt-2 pb-1 text-[11px] font-semibold text-muted-foreground">Destacar projetos</div>
+              {doc.projects.map((p) => {
+                const on = view.projectFilter.includes(p.id)
+                return (
+                  <label key={p.id} className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted" onClick={(e) => e.stopPropagation()}>
+                    <input type="checkbox" checked={on} onChange={() => view.set({ projectFilter: on ? view.projectFilter.filter((x) => x !== p.id) : [...view.projectFilter, p.id] })} />
+                    <span className="size-2.5 rounded-full" style={{ background: p.color }} /> {p.name} — {p.phase}
+                  </label>
+                )
+              })}
+              <div className="border-t px-3 pt-2 pb-1 text-[11px] font-semibold text-muted-foreground">Grupos visíveis</div>
+              {GROUPS.map((g) => {
+                const hidden = (doc.settings.groupsHidden ?? []).includes(g.id)
+                return (
+                  <label key={g.id} className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted" onClick={(e) => e.stopPropagation()}>
+                    <input type="checkbox" checked={!hidden} onChange={() => st.commit("visibilidade de grupo", (d) => {
+                      const cur = d.settings.groupsHidden ?? []
+                      return { ...d, settings: { ...d.settings, groupsHidden: hidden ? cur.filter((x) => x !== g.id) : [...cur, g.id] } }
+                    })} />
+                    {g.code} · {g.label}
+                  </label>
+                )
+              })}
+              <div className="border-t px-3 pt-2 pb-1 text-[11px] font-semibold text-muted-foreground">Sobreposições</div>
+              <label className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted" onClick={(e) => e.stopPropagation()}>
+                <input type="checkbox" checked={view.showLinks} onChange={() => view.set({ showLinks: !view.showLinks })} /> Todas as conexões (padrão: só do item selecionado)
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted" onClick={(e) => e.stopPropagation()}>
+                <input type="checkbox" checked={view.showAnnotations} onChange={() => view.set({ showAnnotations: !view.showAnnotations })} /> Anotações
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted" onClick={(e) => e.stopPropagation()}>
+                Comparar com
+                <select aria-label="Comparar com" className="field !w-auto !py-0.5" value={st.compareId ?? ""} onChange={(e) => st.setCompare(e.target.value || null)}>
+                  <option value="">—</option>
+                  {doc.scenarios.filter((s) => s.id !== st.scenarioId).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </label>
+              <button className="w-full px-3 py-1.5 text-left text-xs text-primary hover:bg-muted" onClick={() => view.set({ projectFilter: [], detailAll: false })}>Limpar filtros</button>
+            </Menu>
+          )}
+        </div>
+        <div role="tablist" aria-label="Visualização" className="ml-1 flex rounded-md border bg-muted p-0.5">
+          {([
+            ["timeline", "Linha do tempo", GanttChart],
+            ["journey", "Jornada", Users],
+          ] as const).map(([id, label, Icon]) => (
+            <button
+              key={id}
+              role="tab"
+              aria-selected={view.studioView === id}
+              className={cn("flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold whitespace-nowrap", view.studioView === id ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+              onClick={() => view.set({ studioView: id })}
+            >
+              <Icon className="size-3.5" /> {label}
+            </button>
+          ))}
+          <button role="tab" aria-selected={false} className="flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold whitespace-nowrap text-muted-foreground hover:text-foreground" onClick={() => st.setMode("board")}>
+            <Presentation className="size-3.5" /> Diretoria
+          </button>
+        </div>
+      </div>
+
+      {/* Right: save, history, export, present */}
+      <div className="ml-auto flex items-center gap-1.5 lg:ml-0">
+        <Button size="sm" variant="ghost" title="Salvar neste navegador (Ctrl+S)" onClick={st.save}>
+          <Save className="size-3.5" /> <span className="hidden xl:inline">Salvar</span>
+        </Button>
+        <Button size="icon" variant="ghost" className="!size-7" title="Desfazer (Ctrl+Z)" aria-label="Desfazer" disabled={!st.past.length} onClick={st.undo}><Undo2 className="size-3.5" /></Button>
+        <Button size="icon" variant="ghost" className="!size-7" title="Refazer (Ctrl+Shift+Z)" aria-label="Refazer" disabled={!st.future.length} onClick={st.redo}><Redo2 className="size-3.5" /></Button>
         <div className="relative">
           <Button size="sm" variant="outline" onClick={() => setMenu(menu === "export" ? null : "export")}>
             <Download className="size-3.5" /> <span className="hidden xl:inline">Exportar</span> <ChevronDown className="size-3" />
@@ -258,8 +277,8 @@ export function TopBar() {
             }}
           />
         </div>
-        <Button variant="accent" size="md" onClick={() => st.setMode("board")}>
-          <Presentation className="size-4" /> Modo Diretoria
+        <Button variant="primary" size="md" onClick={() => st.setMode("board")}>
+          <Presentation className="size-4" /> Apresentar
         </Button>
       </div>
       {out && <ExportDialog out={out} onClose={() => setOut(null)} />}
@@ -272,33 +291,36 @@ function Menu({ children, onClose, right }: { children: React.ReactNode; onClose
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
-      <div className={cn("absolute top-9 z-50 min-w-[260px] rounded-lg border bg-panel-2 py-1 shadow-2xl shadow-black/50", right ? "right-0" : "left-0")} onClick={(e) => {
+      <div
+        className={cn("absolute top-9 z-50 min-w-[270px] rounded-lg border bg-white py-1 shadow-xl shadow-slate-900/10", right ? "right-0" : "left-0")}
+        onClick={(e) => {
           e.stopPropagation()
           if ((e.target as HTMLElement).closest("button")) onClose()
-        }}>
+        }}
+      >
         {children}
       </div>
     </>
   )
 }
 
-function MenuItem({ icon: Icon, children, onClick }: { icon: typeof Hand; children: React.ReactNode; onClick: () => void }) {
+function MenuItem({ icon: Icon, children, onClick }: { icon: typeof Save; children: React.ReactNode; onClick: () => void }) {
   return (
-    <button className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-white/5" onClick={onClick}>
+    <button className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground hover:bg-muted" onClick={onClick}>
       <Icon className="size-3.5 text-muted-foreground" /> {children}
     </button>
   )
 }
 
-export function Logo({ size = 28 }: { size?: number }) {
-  // Placeholder mark (no official SKA asset in this session): stacked temporal rails + continuity node.
+export function Logo({ size = 30 }: { size?: number }) {
+  // Placeholder mark (no official SKA asset in this session): stacked periods + the vigência marker.
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
-      <rect width="32" height="32" rx="8" fill="#1F4FD1" />
-      <rect x="6" y="9" width="13" height="3.2" rx="1.6" fill="#ffffff" />
-      <rect x="9" y="14.4" width="15" height="3.2" rx="1.6" fill="#2EA8FF" />
-      <rect x="13" y="19.8" width="13" height="3.2" rx="1.6" fill="#ffffff" fillOpacity="0.55" />
-      <circle cx="24" cy="10.6" r="2.6" fill="#FF7A1A" />
+      <rect width="32" height="32" rx="7" fill="#173B63" />
+      <rect x="6" y="9" width="12" height="3.4" rx="1" fill="#23845D" />
+      <rect x="10" y="14.3" width="14" height="3.4" rx="1" fill="#2FA2DB" />
+      <rect x="15" y="19.6" width="11" height="3.4" rx="1" fill="#FFFFFF" fillOpacity="0.7" />
+      <rect x="21" y="6" width="1.8" height="20" fill="#E35D5D" />
     </svg>
   )
 }

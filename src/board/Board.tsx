@@ -72,16 +72,16 @@ export default function Board() {
   const isSim = scenario.kind !== "baseline"
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[#030817]">
+    <div className="fixed inset-0 z-50 flex flex-col bg-[#E9EEF4]">
       {/* Chrome — intentionally quiet so the stage carries the room */}
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-white/5 px-3">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-white px-3">
         <Button size="sm" variant="ghost" onClick={() => setMode("studio")}>
           <ArrowLeft className="size-3.5" /> Estúdio
         </Button>
         <div className="mx-auto flex items-center gap-1">
           <Button size="icon" variant="ghost" aria-label="Cena anterior" disabled={scene === 0} onClick={() => go(scene - 1)}><ChevronLeft className="size-4" /></Button>
           {SCENES.map((s, i) => (
-            <button key={i} onClick={() => go(i)} className={cn("rounded-full px-3 py-1 text-xs font-semibold transition-colors", i === scene ? "bg-white text-[#0A1633]" : "text-muted-foreground hover:text-foreground")}>
+            <button key={i} onClick={() => go(i)} className={cn("rounded-full px-3 py-1 text-xs font-semibold transition-colors", i === scene ? "bg-navy text-white" : "text-muted-foreground hover:text-foreground")}>
               {i + 1}. {s.title}
             </button>
           ))}
@@ -111,12 +111,12 @@ export default function Board() {
       <div ref={wrap} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3">
         <StageScale.Provider value={scale}>
           <div
-            className="relative shrink-0 overflow-hidden rounded-[6px] shadow-[0_40px_120px_-20px_rgba(0,0,0,0.8)]"
+            className="relative shrink-0 overflow-hidden rounded-[6px] shadow-[0_24px_60px_-24px_rgba(23,59,99,0.35)]"
             style={{ width: STAGE_W * scale, height: STAGE_H * scale }}
           >
             <div
               className="absolute top-0 left-0 origin-top-left overflow-hidden"
-              style={{ width: STAGE_W, height: STAGE_H, transform: `scale(${scale})`, background: "radial-gradient(120% 90% at 70% 0%, #0E2257 0%, #071334 45%, #040A1F 100%)" }}
+              style={{ width: STAGE_W, height: STAGE_H, transform: `scale(${scale})`, background: "#FFFFFF" }}
             >
               <AnimatePresence mode="wait" custom={dir}>
                 <motion.div
@@ -133,21 +133,21 @@ export default function Board() {
               </AnimatePresence>
 
               {/* Footer brand + simulation ribbon, on every scene */}
-              <div className="pointer-events-none absolute right-[120px] bottom-[22px] left-[120px] flex items-center gap-4 text-[17px] text-[#7F92C2]">
+              <div className="pointer-events-none absolute right-[120px] bottom-[22px] left-[120px] flex items-center gap-4 text-[17px] text-[#64748B]">
                 <Logo size={30} />
-                <span className="font-semibold tracking-[0.18em] text-[#BFD0F5]">SKA TECH HUB</span>
+                <span className="font-semibold tracking-[0.18em] text-[#173B63]">SKA TECH HUB</span>
                 <span>Mondaí · Educação, tecnologia, indústria e inovação</span>
                 <span className="ml-auto font-mono text-[15px]">{scene + 1} / {SCENES.length}</span>
               </div>
               {isSim && (
-                <div className="pointer-events-none absolute top-[34px] right-[120px] flex items-center gap-3 rounded-full border-2 border-dashed border-[#C4B5FD] bg-[#1B1240]/80 px-5 py-2 text-[18px] font-semibold text-[#E4DCFF]">
-                  <span className="rounded-full bg-[#C4B5FD] px-2.5 py-0.5 text-[14px] font-bold tracking-wider text-[#1B1240]">SIMULAÇÃO</span>
+                <div className="pointer-events-none absolute top-[34px] right-[120px] flex items-center gap-3 rounded-full border-2 border-dashed border-[#173B63] bg-white px-5 py-2 text-[18px] font-semibold text-[#173B63]">
+                  <span className="rounded-full bg-[#173B63] px-2.5 py-0.5 text-[14px] font-bold tracking-wider text-white">SIMULAÇÃO</span>
                   {scenario.name} — não representa aprovação
                 </div>
               )}
               {design && (
-                <div className="pointer-events-none absolute inset-0 border-[3px] border-dashed border-[#2EA8FF]/50">
-                  <div className="absolute top-3 left-1/2 -translate-x-1/2 rounded-full bg-[#2EA8FF] px-4 py-1 text-[16px] font-bold text-[#04122B]">
+                <div className="pointer-events-none absolute inset-0 border-[3px] border-dashed border-[#087CB8]/50">
+                  <div className="absolute top-3 left-1/2 -translate-x-1/2 rounded-full bg-[#087CB8] px-4 py-1 text-[16px] font-bold text-white">
                     MODO DESIGN — composição visual. Datas e registros não são alterados aqui.
                   </div>
                 </div>
@@ -157,7 +157,7 @@ export default function Board() {
         </StageScale.Provider>
       </div>
       {design && (
-        <div className="flex h-9 shrink-0 items-center justify-center gap-4 border-t border-white/5 text-[11.5px] text-muted-foreground">
+        <div className="flex h-9 shrink-0 items-center justify-center gap-4 border-t bg-white text-[11.5px] text-muted-foreground">
           <span><Plus className="mr-1 inline size-3" />Arraste caixas para reposicionar · alça azul ajusta a largura · barra flutuante: ocultar, escala e cor · notas são editáveis no texto</span>
         </div>
       )}

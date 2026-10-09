@@ -10,7 +10,7 @@ export const STAGE_H = 1080
 /** Stage scale (screen px per stage px), so drags in design mode stay under the cursor. */
 export const StageScale = createContext(1)
 
-const SWATCHES = ["#E8EEFC", "#2EA8FF", "#FF7A1A", "#C4B5FD", "#FFD08A"]
+const SWATCHES = ["#18324A", "#087CB8", "#173B63", "#23845D", "#C83C3C"]
 
 /**
  * A piece of presentation composition. Its position lives in `presentation.layout`, never in the
@@ -67,7 +67,7 @@ export function Movable({
 
   return (
     <div
-      className={cn("absolute", design && "group/mv cursor-move rounded-md outline-1 outline-dashed outline-[#2EA8FF]/0 hover:outline-[#2EA8FF]/70", box?.hidden && "opacity-30", className)}
+      className={cn("absolute", design && "group/mv cursor-move rounded-md outline-1 outline-dashed outline-[#087CB8]/0 hover:outline-[#087CB8]/70", box?.hidden && "opacity-30", className)}
       style={{ left: bx, top: by, width: bw, transform: s !== 1 ? `scale(${s})` : undefined, transformOrigin: "top left", color: box?.color, ...style }}
       onPointerDown={down("move")}
       onPointerMove={move}
@@ -114,8 +114,8 @@ export function SceneNotes({ scene, resolveX }: { scene: number; resolveX?: (n: 
         return (
           <div
             key={n.id}
-            className={cn("absolute z-20 max-w-[420px] rounded-xl border-2 bg-[#0E1D45]/95 px-5 py-3 text-[22px] leading-snug font-semibold shadow-2xl", design && "cursor-move")}
-            style={{ left: x, top: n.y, borderColor: n.color ?? "#FFD08A", color: "#F4F7FF" }}
+            className={cn("absolute z-20 max-w-[420px] rounded-lg border-2 bg-white px-5 py-3 text-[22px] leading-snug font-semibold shadow-lg", design && "cursor-move")}
+            style={{ left: x, top: n.y, borderColor: n.color ?? "#F28C28", color: "#18324A" }}
             onPointerDown={(e) => {
               if (!design) return
               if ((e.target as HTMLElement).isContentEditable) return
@@ -135,8 +135,8 @@ export function SceneNotes({ scene, resolveX }: { scene: number; resolveX?: (n: 
           >
             {n.arrow && (
               <svg className="absolute -bottom-[54px] left-6" width="60" height="56" aria-hidden="true">
-                <path d="M8,2 C10,30 26,44 50,50" stroke={n.color ?? "#FFD08A"} strokeWidth="3" fill="none" />
-                <path d="M40,40 L52,51 L37,55" stroke={n.color ?? "#FFD08A"} strokeWidth="3" fill="none" />
+                <path d="M8,2 C10,30 26,44 50,50" stroke={n.color ?? "#F28C28"} strokeWidth="3" fill="none" />
+                <path d="M40,40 L52,51 L37,55" stroke={n.color ?? "#F28C28"} strokeWidth="3" fill="none" />
               </svg>
             )}
             <span
@@ -171,17 +171,17 @@ export function SceneTitle({ scene, eyebrow, title, sub, size = 66 }: { scene: n
   return (
     <>
       <Movable k={`s${scene}:eyebrow`} x={120} y={84} w={1200}>
-        <div className="flex items-center gap-3 text-[20px] font-semibold tracking-[0.22em] text-[#7FD1FF] uppercase">
-          <span className="font-mono text-[18px] text-[#FF7A1A]">0{scene + 1}</span>
+        <div className="flex items-center gap-3 text-[19px] font-bold tracking-[0.2em] text-[#087CB8] uppercase">
+          <span className="font-mono text-[18px] text-[#64748B]">0{scene + 1}</span>
           {eyebrow}
         </div>
       </Movable>
       <Movable k={`s${scene}:title`} x={120} y={124} w={1680}>
-        <h1 className="leading-[1.04] font-bold tracking-[-0.02em] text-white" style={{ fontSize: size }}>{title}</h1>
+        <h1 className="font-display leading-[1.04] font-extrabold tracking-[-0.02em] text-[#18324A]" style={{ fontSize: size }}>{title}</h1>
       </Movable>
       {sub && (
         <Movable k={`s${scene}:sub`} x={120} y={214} w={1180}>
-          <p className="text-[25px] leading-snug text-[#AFC0E6]">{sub}</p>
+          <p className="text-[25px] leading-snug text-[#64748B]">{sub}</p>
         </Movable>
       )}
     </>

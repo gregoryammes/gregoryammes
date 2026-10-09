@@ -1,5 +1,7 @@
 import { create } from "zustand"
 import { createSeed } from "@/data/seed"
+import { normalizeDoc } from "@/data/migrate"
+import { groupOf, layerFor, type GroupId } from "@/data/types"
 import type { Annotation, BoxLayout, Item, Link, SceneNote, Scenario, StudioDoc } from "@/data/types"
 import type { SpanKind, SpanStatus } from "@/components/ui/agent-trace"
 
@@ -115,7 +117,7 @@ function loadInitial(): { doc: StudioDoc; scenarioId: string; restored: boolean 
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
-      if (isDoc(parsed.doc)) return { doc: parsed.doc, scenarioId: parsed.scenarioId ?? "baseline", restored: true }
+      if (isDoc(parsed.doc)) return { doc: normalizeDoc(parsed.doc), scenarioId: parsed.scenarioId ?? "baseline", restored: true }
     }
   } catch {
     /* storage unavailable or corrupt: fall back to seed */
@@ -144,6 +146,35 @@ function mapScenario(d: StudioDoc, id: string, fn: (s: Scenario) => Scenario): S
 }
 
 /** Writes a patch to the right place: the baseline record, a scenario override, or a scenario-only item. */
+const VISUAL_KEYS = new Set(["lane", "layer", "color", "detail"])
+
+/**
+ * Composition fields (row order, group, colour) belong to the record's presentation, not to its
+ * evidence: they are written where the record lives (baseline or scenario-only), never as a
+ * scenario hypothesis.
+ */
+export function writeVisual(d: StudioDoc, scenarioId: string, id: string, patch: Partial<Item>): StudioDoc {
+  if (d.items.some((i) => i.id === id)) return { ...d, items: d.items.map((i) => (i.id === id ? { ...i, ...patch } : i)) }
+  return mapScenario(d, scenarioId, (s) => ({ ...s, added: s.added.map((i) => (i.id === id ? { ...i, ...patch } : i)) }))
+}
+
+/** Places `id` at `index` among `order` (the ids currently shown in `group`) and renumbers the rows. */
+export function reorderRows(d: StudioDoc, scenarioId: string, id: string, group: GroupId, order: string[], index: number): StudioDoc {
+  const ids = order.filter((x) => x !== id)
+  ids.splice(Math.max(0, Math.min(ids.length, index)), 0, id)
+  const sc = d.scenarios.find((x) => x.id === scenarioId)
+  const all = [...d.items, ...(sc?.added ?? [])]
+  let next = d
+  ids.forEach((rid, i) => {
+    const it = all.find((x) => x.id === rid)
+    if (!it) return
+    const patch: Partial<Item> = { lane: i }
+    if (rid === id && groupOf(it) !== group) patch.layer = layerFor(it.kind, group)
+    next = writeVisual(next, scenarioId, rid, patch)
+  })
+  return next
+}
+
 export function writePatch(d: StudioDoc, scenarioId: string, id: string, patch: Partial<Item>): StudioDoc {
   const sc = d.scenarios.find((s) => s.id === scenarioId)
   if (!sc || sc.kind === "baseline") {
@@ -274,11 +305,28 @@ export const useStudio = create<StudioState>((set, get) => ({
     const temporal = "start" in patch || "end" in patch
     const target = get().prepareEdit(id, temporal)
     if (!target) return
-    get().commit(label, (d) => writePatch(d, target, id, patch))
+    get().commit(label, (d) => {
+      const visual: Partial<Item> = {}
+      const data: Partial<Item> = {}
+      for (const [k, v] of Object.entries(patch)) (VISUAL_KEYS.has(k) ? (visual as Record<string, unknown>) : (data as Record<string, unknown>))[k] = v
+      let out = Object.keys(data).length ? writePatch(d, target, id, data) : d
+      if (Object.keys(visual).length) out = writeVisual(out, target, id, visual)
+      return out
+    })
   },
   livePatchItems: (patches) => {
     const sid = get().scenarioId
-    get().live((d) => Object.entries(patches).reduce((acc, [id, p]) => writePatch(acc, sid, id, p), d))
+    get().live((d) =>
+      Object.entries(patches).reduce((acc, [id, p]) => {
+        const visual: Partial<Item> = {}
+        const data: Partial<Item> = {}
+        for (const [k, v] of Object.entries(p)) (VISUAL_KEYS.has(k) ? (visual as Record<string, unknown>) : (data as Record<string, unknown>))[k] = v
+        let out = acc
+        if (Object.keys(data).length) out = writePatch(out, sid, id, data)
+        if (Object.keys(visual).length) out = writeVisual(out, sid, id, visual)
+        return out
+      }, d),
+    )
   },
   addItem: (item) => {
     const s = get()
@@ -472,8 +520,9 @@ export const useStudio = create<StudioState>((set, get) => ({
   },
   importJSON: (text) => {
     try {
-      const d = JSON.parse(text)
-      if (!isDoc(d)) throw new Error("schema")
+      const raw = JSON.parse(text)
+      if (!isDoc(raw)) throw new Error("schema")
+      const d = normalizeDoc(raw)
       const s = get()
       set({
         doc: d,

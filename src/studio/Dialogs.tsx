@@ -15,11 +15,11 @@ export function Modal({ title, onClose, children, width = 440 }: { title: string
     return () => window.removeEventListener("keydown", onKey)
   }, [onClose])
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]" onMouseDown={onClose}>
-      <div role="dialog" aria-modal="true" aria-label={title} className="rounded-xl border bg-panel-2 shadow-2xl shadow-black/60" style={{ width, maxWidth: "100%" }} onMouseDown={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-[2px]" onMouseDown={onClose}>
+      <div role="dialog" aria-modal="true" aria-label={title} className="rounded-xl border bg-panel-2 shadow-2xl shadow-slate-900/20" style={{ width, maxWidth: "100%" }} onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h2 className="text-sm font-semibold">{title}</h2>
-          <button aria-label="Fechar" className="rounded p-1 text-muted-foreground hover:bg-white/10" onClick={onClose}><X className="size-4" /></button>
+          <button aria-label="Fechar" className="rounded p-1 text-muted-foreground hover:bg-muted" onClick={onClose}><X className="size-4" /></button>
         </div>
         <div className="space-y-3 p-4">{children}</div>
       </div>
@@ -109,7 +109,7 @@ export function CreateDialog({ kind, onClose }: { kind: ItemKind; onClose: () =>
           </select>
         </label>
       </div>
-      {scenario.kind !== "baseline" && <p className="text-[11px] text-[#C4B5FD]">Cenário “{scenario.name}”: o registro existirá só nesta simulação, como hipótese.</p>}
+      {scenario.kind !== "baseline" && <p className="text-[11px] text-navy">Cenário “{scenario.name}”: o registro existirá só nesta simulação, como hipótese.</p>}
       {err && <p className="text-[11px] text-destructive">{err}</p>}
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose}>Cancelar</Button>

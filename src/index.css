@@ -5,24 +5,27 @@
 /* SKA Tech Hub — "Temporal Intelligence, Executive Edition". The studio is a dark, low-glare
    work surface; the Diretoria stage uses the same tokens at presentation scale. */
 :root {
-  --background: #070f24;
-  --foreground: #e8eefc;
-  --card: #0c1733;
-  --card-foreground: #e8eefc;
-  --muted: #142245;
-  --muted-foreground: #93a3c8;
-  --border: #1f2f57;
-  --primary: #2ea8ff;
-  --primary-foreground: #04122b;
-  --destructive: #ff5a5f;
-  --ring: #2ea8ff;
-  --accent: #ff7a1a;
-  --navy: #0a1633;
-  --corporate: #1f4fd1;
-  --panel: #0a1430;
-  --panel-2: #0e1a3a;
-  --canvas: #060d20;
-  color-scheme: dark;
+  /* SKA Temporal Studio — Executive Light */
+  --background: #f7f9fc;
+  --foreground: #18324a;
+  --card: #ffffff;
+  --card-foreground: #18324a;
+  --muted: #f3f6fa;
+  --muted-foreground: #64748b;
+  --border: #dfe6ee;
+  --primary: #087cb8;
+  --primary-foreground: #ffffff;
+  --destructive: #c83c3c;
+  --ring: #087cb8;
+  --accent: #f28c28;
+  --navy: #173b63;
+  --corporate: #087cb8;
+  --success: #23845d;
+  --plan: #aebac8;
+  --panel: #ffffff;
+  --panel-2: #ffffff;
+  --canvas: #ffffff;
+  color-scheme: light;
 }
 
 @theme inline {
@@ -43,8 +46,11 @@
   --color-panel: var(--panel);
   --color-panel-2: var(--panel-2);
   --color-canvas: var(--canvas);
-  --font-sans: "Inter Tight", ui-sans-serif, system-ui, sans-serif;
+  --color-success: var(--success);
+  --color-plan: var(--plan);
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-display: "Inter Tight", "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
 @layer base {
@@ -65,7 +71,7 @@ body {
   border-color: var(--border);
 }
 ::selection {
-  background: #2ea8ff55;
+  background: #087cb833;
 }
 input,
 select,
@@ -79,23 +85,24 @@ button {
 @layer components {
 .scroll-thin {
   scrollbar-width: thin;
-  scrollbar-color: #24345e transparent;
+  scrollbar-color: #c9d3de transparent;
 }
 .field {
   width: 100%;
   border-radius: 6px;
   border: 1px solid var(--border);
-  background: #08122b;
+  background: #ffffff;
   padding: 5px 8px;
   font-size: 12px;
   outline: none;
 }
 .field:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px #2ea8ff33;
+  box-shadow: 0 0 0 3px #087cb833;
 }
-input[type="date"].field::-webkit-calendar-picker-indicator {
-  filter: invert(0.8);
+.field:disabled {
+  background: var(--muted);
+  color: var(--muted-foreground);
 }
 }
 

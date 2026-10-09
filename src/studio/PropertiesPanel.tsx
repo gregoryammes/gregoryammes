@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react"
-import { AlertTriangle, Crosshair, Copy, Lock, RotateCcw, Trash2, Unlock } from "lucide-react"
+import { Crosshair, Copy, Lock, RotateCcw, Trash2, Unlock, X } from "lucide-react"
 import { Button, Chip } from "@/components/ui/button"
-import { calendarMonthsTouched, fmtDate, fromDay, fmtMonthsSpan, isValidISO, lengthDays, rangeOf } from "@/lib/dates"
-import { describeAfter, type EffItem } from "@/lib/analysis"
-import { brl, itemColor } from "@/lib/visual"
-import { CERTAINTY_LABEL, KIND_LABEL, LAYERS, type Annotation, type Certainty, type Item, type ItemKind } from "@/data/types"
+import { calendarMonthsTouched, fmtDate, fromDay, fmtMonthsSpan, isValidISO, lengthDays, partAfter, rangeOf, toDay } from "@/lib/dates"
+import type { EffItem } from "@/lib/analysis"
+import { brl, itemColor, statusOf } from "@/lib/visual"
+import { CERTAINTY_LABEL, GROUPS, KIND_LABEL, groupOf, isDetail, layerFor, type Annotation, type Certainty, type GroupId, type Item, type ItemKind } from "@/data/types"
 import { useStudio } from "@/store/store"
 import { confirmAction } from "@/components/Confirm"
 import { useAnalysis, useActiveScenario } from "@/store/hooks"
@@ -12,34 +12,37 @@ import { useView } from "@/store/view"
 
 const CERTAINTIES = Object.keys(CERTAINTY_LABEL) as Certainty[]
 
+/**
+ * Right drawer. Closed when nothing is selected, so the schedule keeps the space; selecting a bar
+ * or a row opens it, and closing it clears the selection.
+ */
 export function PropertiesPanel() {
   const selection = useStudio((s) => s.selection)
   const selAnn = useStudio((s) => s.selectedAnnotation)
   const doc = useStudio((s) => s.doc)
-  const { items, indicators } = useAnalysis()
+  const { items } = useAnalysis()
   const sel = items.filter((i) => selection.includes(i.id))
   const ann = doc.annotations.find((a) => a.id === selAnn)
-
+  if (!ann && sel.length === 0) return null
+  const close = () => useStudio.setState({ selection: [], selectedAnnotation: null })
   return (
-    <aside className="scroll-thin hidden w-[300px] shrink-0 flex-col overflow-y-auto border-l bg-panel lg:flex">
-      {ann ? (
-        <AnnotationProps a={ann} items={items} />
-      ) : sel.length === 1 ? (
-        <ItemProps key={sel[0].id} it={sel[0]} />
-      ) : sel.length > 1 ? (
-        <Multi items={sel} />
-      ) : (
-        <Overview indicators={indicators} />
-      )}
+    <aside aria-label="Propriedades" className="scroll-thin absolute inset-y-0 right-0 z-30 flex w-[312px] flex-col overflow-y-auto border-l bg-white shadow-[-12px_0_32px_-24px_rgba(15,40,70,0.35)] lg:static lg:shadow-none">
+      <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-white px-4 py-2.5">
+        <span className="text-[12px] font-semibold text-muted-foreground">{ann ? "Anotação" : sel.length > 1 ? `${sel.length} selecionados` : "Propriedades"}</span>
+        <button aria-label="Fechar painel" title="Fechar (Esc)" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={close}>
+          <X className="size-4" />
+        </button>
+      </div>
+      {ann ? <AnnotationProps a={ann} items={items} /> : sel.length === 1 ? <ItemProps key={sel[0].id} it={sel[0]} /> : <Multi items={sel} />}
     </aside>
   )
 }
 
 function Section({ title, children, aside }: { title: string; children: React.ReactNode; aside?: React.ReactNode }) {
   return (
-    <section className="border-b px-4 py-3">
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-[10.5px] font-bold tracking-[0.14em] text-muted-foreground uppercase">{title}</h3>
+    <section className="border-b px-4 py-3.5">
+      <div className="mb-2.5 flex items-center justify-between">
+        <h3 className="text-[11px] font-bold tracking-[0.1em] text-navy uppercase">{title}</h3>
         {aside}
       </div>
       <div className="space-y-2">{children}</div>
@@ -50,7 +53,7 @@ function Section({ title, children, aside }: { title: string; children: React.Re
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[11px] text-muted-foreground">{label}</span>
+      <span className="mb-1 block text-[11.5px] font-medium text-muted-foreground">{label}</span>
       {children}
       {hint && <span className="mt-0.5 block text-[10.5px] text-muted-foreground/80">{hint}</span>}
     </label>
@@ -130,7 +133,7 @@ export function DateRangeFields({ it }: { it: EffItem }) {
         </div>
       )}
       {it.dateUndetermined && (
-        <p className="rounded-md border border-[#FFD08A]/30 bg-[#FFD08A]/8 p-2 text-[11px] leading-snug text-[#FFE2B3]">
+        <p className="rounded-md border border-[#E3C25C] bg-[#FFF8DB] p-2 text-[11.5px] leading-snug text-[#6B4E00]">
           Datas específicas não comprovadas: o período mostra apenas o intervalo geral em que a ação ocorreu.
         </p>
       )}
@@ -138,87 +141,36 @@ export function DateRangeFields({ it }: { it: EffItem }) {
   )
 }
 
+const FINANCE_KINDS = ["curso", "bolsa", "contrato", "projeto", "turma"]
+
 function ItemProps({ it }: { it: EffItem }) {
   const st = useStudio()
   const doc = useStudio((s) => s.doc)
   const scenario = useActiveScenario()
-  const { overruns, items } = useAnalysis()
-  const over = overruns.find((o) => o.item.id === it.id)
-  const overByVig = it.kind === "vigencia" ? overruns.filter((o) => o.vigencia.id === it.id) : []
+  const { items } = useAnalysis()
   const patch = (p: Partial<Item>, label = "editar propriedade") => st.patchItem(it.id, p, label)
   const baseItem = doc.items.find((i) => i.id === it.id)
   const links = doc.links.filter((l) => l.from === it.id || l.to === it.id)
   const nameOf = (id: string) => items.find((i) => i.id === id)?.name ?? id
+  const ref = toDay(doc.settings.referenceDate)
+  const status = statusOf(it, ref)
+  const vig = items.find((i) => i.kind === "vigencia" && i.projectId === (it.projectId ?? "p2")) ?? items.find((i) => i.kind === "vigencia")
+  const docVig = vig ? (vig.baseRange ?? vig.range) : null
+  const after = docVig && !it.dateUndetermined && !["vigencia", "projeto", "planejamento"].includes(it.kind) ? partAfter(it.range, docVig) : null
+  const afterHyp = after && vig?.baseRange ? partAfter(it.range, vig.range) : null
+  const showFinance = !!it.finance || FINANCE_KINDS.includes(it.kind)
 
   return (
     <>
-      <div className="border-b px-4 pt-4 pb-3">
-        <div className="mb-1 flex items-center gap-1.5">
-          <Chip className="text-muted-foreground">{KIND_LABEL[it.kind]}</Chip>
-          <Chip className={it.certainty === "hipotese" ? "border-[#C4B5FD]/50 text-[#C4B5FD]" : "text-[#FFE2B3]"}>{CERTAINTY_LABEL[it.certainty]}</Chip>
-          {it.changed && <Chip className="border-[#C4B5FD]/50 text-[#C4B5FD]">Δ cenário</Chip>}
-        </div>
+      {/* Identificação */}
+      <Section title="Identificação">
         <TextField value={it.name} onCommit={(v) => patch({ name: v }, "renomear")} />
-        <div className="mt-2 flex gap-1">
-          <Button size="sm" variant="ghost" title="Centralizar" onClick={() => useView.getState().centerOn(it.range.start, it.range.end)}><Crosshair className="size-3.5" /></Button>
-          <Button size="sm" variant="ghost" title="Duplicar (Ctrl+D)" onClick={() => st.duplicateItems([it.id])}><Copy className="size-3.5" /></Button>
-          <Button size="sm" variant="ghost" title={it.locked ? "Desbloquear" : "Bloquear"} onClick={() => st.commit(it.locked ? "desbloquear" : "bloquear", (d) => ({ ...d, items: d.items.map((x) => (x.id === it.id ? { ...x, locked: !it.locked } : x)) }))}>
-            {it.locked ? <Unlock className="size-3.5" /> : <Lock className="size-3.5" />}
-          </Button>
-          <Button size="sm" variant="danger" className="ml-auto" title="Excluir" onClick={async () => (await confirmAction(`Excluir “${it.name}”? (é possível desfazer)`)) && st.deleteItems([it.id])}>
-            <Trash2 className="size-3.5" />
-          </Button>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Chip className="text-muted-foreground">{KIND_LABEL[it.kind]}</Chip>
+          <Chip className={it.certainty === "hipotese" ? "border-navy/40 text-navy" : "text-foreground"}>{status.label}</Chip>
+          {status.pending && <Chip className="border-[#E3C25C] bg-[#FFF8DB] text-[#6B4E00]">a validar</Chip>}
+          {it.changed && <Chip className="border-navy bg-navy text-white">cenário</Chip>}
         </div>
-      </div>
-
-      {(over || overByVig.length > 0) && (
-        <Section title="Continuidade temporal">
-          {over && (
-            <div className="rounded-lg border border-accent/50 bg-accent/10 p-2.5 text-[12px] leading-snug">
-              <div className="mb-1 flex items-center gap-1.5 font-semibold text-accent"><AlertTriangle className="size-3.5" /> {describeAfter(over)}</div>
-              após o fim de “{over.vigencia.name}” ({fmtDate(over.vigencia.end)}). {over.days} dias.
-            </div>
-          )}
-          {overByVig.map((o) => (
-            <div key={o.item.id} className="flex justify-between gap-2 text-[11.5px]">
-              <span className="truncate">{o.item.name}</span>
-              <span className="shrink-0 font-semibold text-accent">+{o.months} m</span>
-            </div>
-          ))}
-          <p className="text-[10.5px] leading-snug text-muted-foreground">Indicador temporal. Não indica despesa irregular, ausência de cobertura financeira nem conclusão jurídica.</p>
-        </Section>
-      )}
-
-      <Section title="Período">
-        <DateRangeFields it={it} />
-        {it.baseRange && baseItem && (
-          <div className="rounded-md border border-[#C4B5FD]/40 bg-[#C4B5FD]/8 p-2 text-[11px] leading-snug">
-            <div className="font-semibold text-[#C4B5FD]">Hipótese em “{scenario.name}”</div>
-            Base: {fmtDate(baseItem.start)} – {fmtDate(baseItem.end)}. Esta mudança não altera o registro documental.
-            <button
-              className="mt-1 flex items-center gap-1 text-[#C4B5FD] hover:underline"
-              onClick={() =>
-                st.commit("reverter à base", (d) => ({
-                  ...d,
-                  scenarios: d.scenarios.map((s) => {
-                    if (s.id !== scenario.id) return s
-                    const o = { ...s.overrides }
-                    delete o[it.id]
-                    return { ...s, overrides: o }
-                  }),
-                }))
-              }
-            >
-              <RotateCcw className="size-3" /> Reverter à base
-            </button>
-          </div>
-        )}
-        {scenario.kind === "baseline" && it.kind === "vigencia" && (
-          <p className="text-[10.5px] leading-snug text-muted-foreground">Na linha de base, a vigência é protegida: editar suas datas cria automaticamente uma hipótese no Cenário de trabalho.</p>
-        )}
-      </Section>
-
-      <Section title="Classificação">
         <div className="grid grid-cols-2 gap-2">
           <Field label="Tipo">
             <select className="field" value={it.kind} onChange={(e) => patch({ kind: e.target.value as ItemKind }, "tipo")}>
@@ -231,74 +183,134 @@ function ItemProps({ it }: { it: EffItem }) {
               {doc.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </Field>
-          <Field label="Status de execução">
+        </div>
+        <div className="flex gap-1">
+          <Button size="sm" variant="ghost" title="Centralizar na timeline" onClick={() => useView.getState().centerOn(it.range.start, it.range.end)}><Crosshair className="size-3.5" /> Centralizar</Button>
+          <Button size="sm" variant="ghost" title="Duplicar (Ctrl+D)" aria-label="Duplicar" onClick={() => st.duplicateItems([it.id])}><Copy className="size-3.5" /></Button>
+          <Button size="sm" variant="ghost" title={it.locked ? "Desbloquear" : "Bloquear edição"} aria-label={it.locked ? "Desbloquear" : "Bloquear"} onClick={() => st.commit(it.locked ? "desbloquear" : "bloquear", (d) => ({ ...d, items: d.items.map((x) => (x.id === it.id ? { ...x, locked: !it.locked } : x)) }))}>
+            {it.locked ? <Unlock className="size-3.5" /> : <Lock className="size-3.5" />}
+          </Button>
+          <Button size="sm" variant="danger" className="ml-auto" title="Excluir" aria-label="Excluir" onClick={async () => (await confirmAction(`Excluir “${it.name}”? (é possível desfazer)`)) && st.deleteItems([it.id])}>
+            <Trash2 className="size-3.5" />
+          </Button>
+        </div>
+      </Section>
+
+      <Section title="Período">
+        <DateRangeFields it={it} />
+        {after && (
+          <div className="rounded-md border border-destructive/30 bg-[#FDF2F2] p-2.5 text-[12px] leading-snug text-foreground">
+            <div className="font-semibold text-destructive">{calendarMonthsTouched(after)} meses-calendário após a vigência de referência</div>
+            {fmtMonthsSpan(after)} · {lengthDays(after)} dias.
+            {vig?.baseRange && <> No cenário ativo: {afterHyp ? `${calendarMonthsTouched(afterHyp)} meses após ${fmtDate(fromDay(vig.range.end - 1))}` : "dentro da vigência simulada"}.</>}
+            <div className="mt-1 text-[11px] text-muted-foreground">Fato de calendário: não afirma ausência de pagamento nem de cobertura.</div>
+          </div>
+        )}
+        {it.baseRange && baseItem && (
+          <div className="rounded-md border border-navy/30 bg-[#EEF2F8] p-2.5 text-[11.5px] leading-snug">
+            <div className="font-semibold text-navy">Hipótese em “{scenario.name}”</div>
+            Referência documental: {fmtDate(baseItem.start)} – {fmtDate(baseItem.end)}. O registro documental não foi alterado.
+            <button
+              className="mt-1 flex items-center gap-1 font-medium text-navy hover:underline"
+              onClick={() =>
+                st.commit("reverter à base", (d) => ({
+                  ...d,
+                  scenarios: d.scenarios.map((s) => {
+                    if (s.id !== scenario.id) return s
+                    const o = { ...s.overrides }
+                    delete o[it.id]
+                    return { ...s, overrides: o }
+                  }),
+                }))
+              }
+            >
+              <RotateCcw className="size-3" /> Reverter à referência
+            </button>
+          </div>
+        )}
+        {scenario.kind === "baseline" && it.kind === "vigencia" && (
+          <p className="text-[11px] leading-snug text-muted-foreground">Na linha de base a vigência é protegida: alterar suas datas cria uma hipótese no Cenário de trabalho.</p>
+        )}
+      </Section>
+
+      <Section title="Classificação">
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Grupo">
+            <select
+              className="field"
+              value={groupOf(it)}
+              onChange={(e) => {
+                const g = e.target.value as GroupId
+                const lane = Math.max(-1, ...items.filter((x) => groupOf(x) === g).map((x) => x.lane)) + 1
+                patch({ layer: layerFor(it.kind, g), lane }, "mover de grupo")
+              }}
+            >
+              {GROUPS.map((g) => <option key={g.id} value={g.id}>{g.code} · {g.label}</option>)}
+            </select>
+          </Field>
+          <Field label="Cor">
+            <div className="flex items-center gap-2">
+              <input type="color" className="h-8 w-10 cursor-pointer rounded border bg-white" value={itemColor(it.kind, doc.projects.find((p) => p.id === it.projectId)?.color ?? "#7C8DA6", it.color)} onFocus={() => st.begin("cor")} onBlur={() => st.end()} onChange={(e) => st.livePatchItems({ [it.id]: { color: e.target.value } })} />
+              {it.color && <button className="text-[11px] text-primary" onClick={() => patch({ color: undefined }, "cor")}>padrão</button>}
+            </div>
+          </Field>
+        </div>
+        <label className="flex items-center gap-2 text-[12px]"><input type="checkbox" checked={!it.hidden} onChange={() => patch({ hidden: !it.hidden }, "visibilidade")} /> Visível na timeline</label>
+        <label className="flex items-center gap-2 text-[12px]"><input type="checkbox" checked={!isDetail(it)} onChange={() => patch({ detail: isDetail(it) ? false : true }, "nível de detalhe")} /> Mostrar na visão limpa</label>
+      </Section>
+
+      <Section title="Situação">
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Execução / evidência">
             <select className="field" value={it.certainty} onChange={(e) => patch({ certainty: e.target.value as Certainty }, "status")}>
               {CERTAINTIES.map((c) => <option key={c} value={c}>{CERTAINTY_LABEL[c]}</option>)}
             </select>
           </Field>
-          <Field label="Status contratual">
+          <Field label="Contratual">
             <select className="field" value={it.contractStatus ?? "nao_informado"} onChange={(e) => patch({ contractStatus: e.target.value as Certainty }, "status contratual")}>
               {CERTAINTIES.map((c) => <option key={c} value={c}>{CERTAINTY_LABEL[c]}</option>)}
             </select>
           </Field>
-          <Field label="Camada">
-            <select className="field" value={it.layer} onChange={(e) => patch({ layer: e.target.value as Item["layer"] }, "camada")}>
-              {LAYERS.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
-            </select>
-          </Field>
-          <Field label="Faixa">
-            <input type="number" min={0} className="field" value={it.lane} onChange={(e) => patch({ lane: Math.max(0, Number(e.target.value) || 0) }, "faixa")} />
-          </Field>
-          <Field label="Cor">
-            <div className="flex items-center gap-2">
-              <input type="color" className="h-7 w-10 cursor-pointer rounded border bg-transparent" value={itemColor(it.kind, doc.projects.find((p) => p.id === it.projectId)?.color ?? "#7C8DB5", it.color)} onFocus={() => st.begin("cor")} onBlur={() => st.end()} onChange={(e) => st.livePatchItems({ [it.id]: { color: e.target.value } })} />
-              {it.color && <button className="text-[11px] text-primary" onClick={() => patch({ color: undefined }, "cor")}>padrão</button>}
-            </div>
-          </Field>
-          <Field label="Visível">
-            <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={!it.hidden} onChange={() => patch({ hidden: !it.hidden }, "visibilidade")} /> no canvas</label>
-          </Field>
         </div>
+        {showFinance && (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Valor previsto (R$)">
+                <MoneyField value={it.finance?.planned} onCommit={(v) => patch({ finance: { planned: v, paid: it.finance?.paid ?? null, status: it.finance?.status ?? "nao_informado", note: it.finance?.note } }, "valor previsto")} />
+              </Field>
+              <Field label="Valor pago (R$)">
+                <MoneyField value={it.finance?.paid} onCommit={(v) => patch({ finance: { planned: it.finance?.planned ?? null, paid: v, status: it.finance?.status ?? "nao_informado", note: it.finance?.note } }, "valor pago")} />
+              </Field>
+            </div>
+            <Field label="Situação financeira">
+              <select className="field" value={it.finance?.status ?? "nao_informado"} onChange={(e) => patch({ finance: { planned: it.finance?.planned ?? null, paid: it.finance?.paid ?? null, status: e.target.value as Certainty, note: it.finance?.note } }, "situação financeira")}>
+                {CERTAINTIES.map((c) => <option key={c} value={c}>{CERTAINTY_LABEL[c]}</option>)}
+              </select>
+            </Field>
+            {it.finance?.planned != null && it.finance.status !== "comprovado" && it.finance.status !== "formalizado" && (
+              <p className="text-[11.5px] leading-snug text-[#6B4E00]">{brl(it.finance.planned)} — valor não conciliado; não exibido como oficial.</p>
+            )}
+            {it.finance?.note && <p className="text-[11.5px] leading-snug text-muted-foreground">{it.finance.note}</p>}
+          </>
+        )}
+        {it.kind === "bolsa" && (
+          <Field label="Condições das bolsas">
+            <TextField multiline value={it.conditions ?? ""} onCommit={(v) => patch({ conditions: v }, "condições")} />
+          </Field>
+        )}
+        {(it.kind === "curso" || it.kind === "turma") && (
+          <Field label="Quantidade de alunos" hint="Somente quando comprovada. Vazio = não informado.">
+            <MoneyField value={it.students} onCommit={(v) => patch({ students: v }, "alunos")} />
+          </Field>
+        )}
       </Section>
 
-      {(it.finance || ["curso", "bolsa", "contrato", "projeto", "turma"].includes(it.kind)) && (
-        <Section title="Informações financeiras">
-          <div className="grid grid-cols-2 gap-2">
-            <Field label="Valor previsto (R$)">
-              <MoneyField value={it.finance?.planned} onCommit={(v) => patch({ finance: { planned: v, paid: it.finance?.paid ?? null, status: it.finance?.status ?? "nao_informado", note: it.finance?.note } }, "valor previsto")} />
-            </Field>
-            <Field label="Valor pago (R$)">
-              <MoneyField value={it.finance?.paid} onCommit={(v) => patch({ finance: { planned: it.finance?.planned ?? null, paid: v, status: it.finance?.status ?? "nao_informado", note: it.finance?.note } }, "valor pago")} />
-            </Field>
-          </div>
-          <Field label="Situação financeira">
-            <select className="field" value={it.finance?.status ?? "nao_informado"} onChange={(e) => patch({ finance: { planned: it.finance?.planned ?? null, paid: it.finance?.paid ?? null, status: e.target.value as Certainty, note: it.finance?.note } }, "situação financeira")}>
-              {CERTAINTIES.map((c) => <option key={c} value={c}>{CERTAINTY_LABEL[c]}</option>)}
-            </select>
-          </Field>
-          {it.finance?.planned != null && it.finance.status !== "comprovado" && it.finance.status !== "formalizado" && (
-            <p className="text-[11px] leading-snug text-[#FFE2B3]">{brl(it.finance.planned)} — valor não conciliado; não exibido como oficial.</p>
-          )}
-          {it.finance?.note && <p className="text-[11px] leading-snug text-muted-foreground">{it.finance.note}</p>}
-          {it.kind === "bolsa" && (
-            <Field label="Condições das bolsas">
-              <TextField multiline value={it.conditions ?? ""} onCommit={(v) => patch({ conditions: v }, "condições")} />
-            </Field>
-          )}
-          {(it.kind === "curso" || it.kind === "turma") && (
-            <Field label="Quantidade de alunos" hint="Somente quando comprovada. Vazio = não informado.">
-              <MoneyField value={it.students} onCommit={(v) => patch({ students: v }, "alunos")} />
-            </Field>
-          )}
-        </Section>
-      )}
-
       <Section title="Vínculos">
-        {links.length === 0 && <p className="text-[11px] text-muted-foreground">Sem conexões. Use a ferramenta Conectar (C).</p>}
+        {links.length === 0 && <p className="text-[11.5px] text-muted-foreground">Sem conexões. Use a ferramenta Conectar (C) na barra flutuante.</p>}
         {links.map((l) => (
-          <div key={l.id} className="flex items-center justify-between gap-2 text-[11.5px]">
+          <div key={l.id} className="flex items-center justify-between gap-2 text-[12px]">
             <span className="truncate">{l.from === it.id ? `→ ${nameOf(l.to)}` : `← ${nameOf(l.from)}`}</span>
-            <button className="text-muted-foreground hover:text-destructive" onClick={() => st.deleteLink(l.id)}><Trash2 className="size-3" /></button>
+            <button aria-label="Remover conexão" className="text-muted-foreground hover:text-destructive" onClick={() => st.deleteLink(l.id)}><Trash2 className="size-3" /></button>
           </div>
         ))}
       </Section>
@@ -307,7 +319,7 @@ function ItemProps({ it }: { it: EffItem }) {
         {doc.sources.map((s) => {
           const on = it.sourceIds.includes(s.id)
           return (
-            <label key={s.id} className="flex items-start gap-2 text-[11.5px] leading-snug">
+            <label key={s.id} className="flex items-start gap-2 text-[12px] leading-snug">
               <input type="checkbox" className="mt-0.5" checked={on} onChange={() => patch({ sourceIds: on ? it.sourceIds.filter((x) => x !== s.id) : [...it.sourceIds, s.id] }, "fonte")} />
               <span>
                 {s.title} <span className="text-muted-foreground">· {CERTAINTY_LABEL[s.status]}</span>
@@ -315,11 +327,10 @@ function ItemProps({ it }: { it: EffItem }) {
             </label>
           )
         })}
-      </Section>
-
-      <Section title="Observações">
-        {it.description && <p className="text-[11.5px] leading-snug text-muted-foreground">{it.description}</p>}
-        <TextField multiline value={it.notes ?? ""} placeholder="Observações, pendências, referências…" onCommit={(v) => patch({ notes: v }, "observações")} />
+        {it.description && <p className="pt-1 text-[11.5px] leading-snug text-muted-foreground">{it.description}</p>}
+        <Field label="Observações">
+          <TextField multiline value={it.notes ?? ""} placeholder="Observações, pendências, referências…" onCommit={(v) => patch({ notes: v }, "observações")} />
+        </Field>
       </Section>
     </>
   )
@@ -386,34 +397,3 @@ function AnnotationProps({ a, items }: { a: Annotation; items: EffItem[] }) {
   )
 }
 
-function Overview({ indicators }: { indicators: ReturnType<typeof useAnalysis>["indicators"] }) {
-  const scenario = useActiveScenario()
-  return (
-    <>
-      <Section title="Cenário ativo">
-        <div className="text-[13px] font-semibold">{scenario.name}</div>
-        <p className="text-[11.5px] leading-snug text-muted-foreground">{scenario.description}</p>
-      </Section>
-      <Section title="Continuidade após vigência">
-        {indicators.overruns.length === 0 && <p className="text-[11.5px] text-muted-foreground">Nenhum registro datado ultrapassa a vigência neste cenário.</p>}
-        {indicators.overruns.map((o) => (
-          <div key={o.item.id} className="rounded-md border border-accent/30 bg-accent/5 p-2 text-[11.5px] leading-snug">
-            <div className="font-semibold">{o.item.name}</div>
-            <div className="text-accent">{describeAfter(o)}</div>
-          </div>
-        ))}
-      </Section>
-      <Section title="Como editar">
-        <ul className="space-y-1.5 text-[11.5px] leading-snug text-muted-foreground">
-          <li><b className="text-foreground">Arrastar</b> uma barra muda as datas (duração constante).</li>
-          <li><b className="text-foreground">Bordas</b> esquerda/direita redimensionam início/fim.</li>
-          <li><b className="text-foreground">Vertical</b> muda só a faixa visual.</li>
-          <li><b className="text-foreground">Duplo clique</b> abre o formulário de datas.</li>
-          <li><b className="text-foreground">Shift + arrastar</b> no fundo seleciona em área.</li>
-          <li><b className="text-foreground">Fundo / Espaço + arrastar</b> navega; <b className="text-foreground">Ctrl + roda</b> aplica zoom.</li>
-          <li><b className="text-foreground">Ctrl+Z / Ctrl+Shift+Z</b> desfaz/refaz; Ctrl+C/V/D; Del exclui.</li>
-        </ul>
-      </Section>
-    </>
-  )
-}

@@ -1,16 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
-  addMonths, calendarMonthsTouched, dayOf, fmtDate, fromDay, lengthDays, monthShort, snapBoundary, toDay, ymd,
+  addMonths, calendarMonthsTouched, dayOf, fmtDate, fmtMonthsSpan, fromDay, lengthDays, monthShort, partAfter, snapBoundary, toDay, ymd,
   type DayRange,
 } from "@/lib/dates"
-import { computeOverruns, type EffItem } from "@/lib/analysis"
-import { computeRows, HEADER_H, LABEL_W, ROW_H, RULER_H, COLLAPSED_H } from "@/lib/layout"
-import { BRAND, barStyle, itemColor, truncate, wrapText } from "@/lib/visual"
-import { useStudio, uid } from "@/store/store"
+import type { EffItem } from "@/lib/analysis"
+import { computeRows, BAR_H, LABEL_W, type Row } from "@/lib/layout"
+import { C, barStyleFor, itemColor, statusOf, textWidth, truncate, wrapText, type StatusKey } from "@/lib/visual"
+import { reorderRows, useStudio, uid } from "@/store/store"
 import { useCompareItems, useEffectiveItems, useProjectColor } from "@/store/hooks"
 import { useView } from "@/store/view"
-import type { Annotation } from "@/data/types"
+import { GROUPS, KIND_LABEL, type Annotation, type GroupId } from "@/data/types"
 import { confirmAction } from "@/components/Confirm"
+
+/* ──────────────────────────────────────────────────────────────────────────────
+ * Timeline — a continuous time matrix. Rows are records, grouped in four reading
+ * groups; x is computed from real calendar days only (dates are the source of truth).
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+const PROJ_H = 40
+const YEAR_H = 26
+const SEM_H = 22
+const MONTH_H = 18
+const EXTENT_START = dayOf(2022, 1)
+const EXTENT_END = dayOf(2032, 1)
+
+const GROUP_COLOR: Record<GroupId, string> = { g1: C.navy, g2: C.green, g3: C.blue, g4: "#6B5B4E" }
 
 type Gesture =
   | {
@@ -19,23 +33,22 @@ type Gesture =
       ids: string[]
       sx: number
       sy: number
-      orig: Record<string, { start: number; end: number; lane: number }>
+      orig: Record<string, { start: number; end: number }>
       began: boolean
       temporalReady: boolean
       clickSelect: string | null
+      drop: { group: GroupId; index: number; lineY: number } | null
     }
   | { type: "resize-l" | "resize-r"; id: string; sx: number; orig: { start: number; end: number }; began: boolean }
   | { type: "pan"; sx: number; sy: number; x0: number; scrollY: number; moved: boolean }
   | { type: "marquee"; sx: number; sy: number; cx: number; cy: number; additive: boolean }
   | { type: "ann"; id: string; sx: number; sy: number; date: number; y: number; offset: number; linked: boolean; began: boolean }
+  | { type: "hscroll"; sx: number; x0: number }
 
-interface Hint {
-  x: number
-  y: number
-  lines: string[]
+const shortMonth = (day: number) => {
+  const t = ymd(day)
+  return `${monthShort(t.m)}/${String(t.y).slice(2)}`
 }
-
-const LOWER_TIER = (ppd: number) => (ppd < 1.1 ? "quarter" : ppd < 5 ? "month" : ppd < 16 ? "week" : "day")
 
 export function TimelineCanvas() {
   const items = useEffectiveItems()
@@ -49,72 +62,93 @@ export function TimelineCanvas() {
   const svgRef = useRef<SVGSVGElement>(null)
   const gesture = useRef<Gesture | null>(null)
   const [size, setSize] = useState({ w: 1200, h: 600 })
-  const [hint, setHint] = useState<Hint | null>(null)
-  const [hover, setHover] = useState<string | null>(null)
+  const [, force] = useState(0)
+  const [hover, setHover] = useState<{ id: string; x: number; y: number; hyp?: boolean } | null>(null)
+  const [dragHint, setDragHint] = useState<{ x: number; y: number; lines: string[] } | null>(null)
   const [spaceDown, setSpaceDown] = useState(false)
   const fitted = useRef(false)
 
   const { settings } = doc
   const visible = useMemo(() => items.filter((i) => !i.hidden), [items])
-  const rows = useMemo(() => computeRows(visible, settings.layersHidden, settings.layersCollapsed), [visible, settings.layersHidden, settings.layersCollapsed])
-  const overruns = useMemo(() => computeOverruns(items), [items])
-  const vigencias = visible.filter((i) => i.kind === "vigencia")
+  const layout = useMemo(
+    () =>
+      computeRows(visible, {
+        hidden: settings.groupsHidden ?? [],
+        collapsed: settings.groupsCollapsed ?? [],
+        detailed: settings.groupsDetailed ?? [],
+        detailAll: view.detailAll,
+      }),
+    [visible, settings.groupsHidden, settings.groupsCollapsed, settings.groupsDetailed, view.detailAll],
+  )
+  const projects = visible.filter((i) => i.kind === "projeto")
+  const vig = visible.find((i) => i.kind === "vigencia" && i.projectId === "p2") ?? visible.find((i) => i.kind === "vigencia")
+  const docVig: DayRange | null = vig ? (vig.baseRange ?? vig.range) : null
+  const hypVig: DayRange | null = vig?.baseRange ? vig.range : null
   const refDay = toDay(settings.referenceDate)
   const filter = view.projectFilter
   const dimmed = (it: EffItem) => filter.length > 0 && !filter.includes(it.projectId ?? "")
 
-  // ── Measure ────────────────────────────────────────────────────────────────
+  // ── Measure; first open shows 2025–2028 ──────────────────────────────────
   useEffect(() => {
     const el = wrapRef.current
     if (!el) return
     const ro = new ResizeObserver(([e]) => {
       const w = Math.floor(e.contentRect.width)
       const h = Math.floor(e.contentRect.height)
+      if (!w || !h) return
       setSize({ w, h })
       useView.getState().set({ width: Math.max(200, w - LABEL_W) })
-      if (!fitted.current && w > 0) {
+      const r = useView.getState().range
+      if (!fitted.current) {
         fitted.current = true
-        useView.getState().fit(dayOf(2023, 1), dayOf(2031, 1))
-      }
+        useView.getState().setRange(r?.from ?? 2025, r?.to ?? 2028)
+      } else if (r) useView.getState().fit(dayOf(r.from, 1), dayOf(r.to + 1, 1))
     })
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
 
   const { x0, pxPerDay: ppd, scrollY } = view
+  const ppy = ppd * 365.25
+  const showSem = ppy >= 90
+  const showQuarters = ppy >= 900
+  const showMonths = ppy >= 150
+  const HEADER = PROJ_H + YEAR_H + (showSem ? SEM_H : 0) + (showMonths ? MONTH_H : 0) + 4
+  const BODY_TOP = HEADER
   const X = (day: number) => LABEL_W + (day - x0) * ppd
   const dayAt = (px: number) => x0 + (px - LABEL_W) / ppd
-  const Y = (rowY: number) => RULER_H + rowY - scrollY
+  const Y = (rowTop: number) => BODY_TOP + rowTop - scrollY
   const visStart = Math.floor(dayAt(LABEL_W)) - 2
   const visEnd = Math.ceil(dayAt(size.w)) + 2
-  const bodyH = Math.max(0, size.h - RULER_H)
-  const maxScroll = Math.max(0, rows.total - bodyH + 40)
+  const bodyH = Math.max(0, size.h - HEADER)
+  const maxScroll = Math.max(0, layout.total - bodyH + 60)
+  const maxScrollRef = useRef(maxScroll)
+  maxScrollRef.current = maxScroll
 
-  // ── Space-to-pan + keyboard shortcuts ────────────────────────────────────
+  // ── Keyboard ────────────────────────────────────────────────────────────
   useEffect(() => {
-    const isField = (t: EventTarget | null) => t instanceof HTMLElement && (t.closest("input,textarea,select,[contenteditable]") !== null)
+    const isField = (t: EventTarget | null) => t instanceof HTMLElement && t.closest("input,textarea,select,[contenteditable]") !== null
     const down = (e: KeyboardEvent) => {
-      if (isField(e.target) || useStudio.getState().mode !== "studio") return
+      if (isField(e.target) || useStudio.getState().mode !== "studio" || useView.getState().studioView !== "timeline") return
       const st = useStudio.getState()
       const mod = e.metaKey || e.ctrlKey
+      const k = e.key.toLowerCase()
       if (e.code === "Space") {
         setSpaceDown(true)
         e.preventDefault()
-        return
-      }
-      if (mod && e.key.toLowerCase() === "z") {
+      } else if (mod && k === "z") {
         e.preventDefault()
         if (e.shiftKey) st.redo()
         else st.undo()
-      } else if (mod && e.key.toLowerCase() === "y") {
+      } else if (mod && k === "y") {
         e.preventDefault()
         st.redo()
-      } else if (mod && e.key.toLowerCase() === "c") st.copy()
-      else if (mod && e.key.toLowerCase() === "v") st.paste()
-      else if (mod && e.key.toLowerCase() === "d") {
+      } else if (mod && k === "c") st.copy()
+      else if (mod && k === "v") st.paste()
+      else if (mod && k === "d") {
         e.preventDefault()
         st.duplicateItems(st.selection)
-      } else if (mod && e.key.toLowerCase() === "s") {
+      } else if (mod && k === "s") {
         e.preventDefault()
         st.save()
       } else if (e.key === "Delete" || e.key === "Backspace") {
@@ -132,15 +166,12 @@ export function TimelineCanvas() {
         if (!st.selection.length) return
         e.preventDefault()
         nudge(e.key === "ArrowRight" ? 1 : -1, e.shiftKey)
-      } else if (!mod && e.key === "v") useView.getState().set({ tool: "select" })
-      else if (!mod && e.key === "h") useView.getState().set({ tool: "hand" })
-      else if (!mod && e.key === "n") useView.getState().set({ tool: "note" })
-      else if (!mod && e.key === "c") useView.getState().set({ tool: "connect", connectFrom: null })
-      else if (!mod && e.key === "f") fitAll()
+      } else if (!mod && k === "v") useView.getState().set({ tool: "select" })
+      else if (!mod && k === "h") useView.getState().set({ tool: "hand" })
+      else if (!mod && k === "n") useView.getState().set({ tool: "note" })
+      else if (!mod && k === "c") useView.getState().set({ tool: "connect", connectFrom: null })
     }
-    const up = (e: KeyboardEvent) => {
-      if (e.code === "Space") setSpaceDown(false)
-    }
+    const up = (e: KeyboardEvent) => e.code === "Space" && setSpaceDown(false)
     window.addEventListener("keydown", down)
     window.addEventListener("keyup", up)
     return () => {
@@ -149,26 +180,18 @@ export function TimelineCanvas() {
     }
   })
 
-  function fitAll() {
-    if (!visible.length) return
-    useView.getState().fit(Math.min(...visible.map((i) => i.range.start)), Math.max(...visible.map((i) => i.range.end)))
-  }
-
-  /** Keyboard nudge: one snap unit (or a day without snap); Shift = one month. */
   function nudge(dir: number, big: boolean) {
     const st = useStudio.getState()
     const unit = big ? "month" : settings.snap === "none" ? "day" : settings.snap
     const sel = visible.filter((i) => st.selection.includes(i.id) && !i.locked)
-    if (!sel.length) return
-    if (!st.prepareEdit(sel[0].id, true)) return
+    if (!sel.length || !st.prepareEdit(sel[0].id, true)) return
     const patches: Record<string, { start: string; end: string }> = {}
     for (const it of sel) {
       const len = it.range.end - it.range.start
-      let ns: number
-      if (unit === "day") ns = it.range.start + dir
-      else if (unit === "week") ns = it.range.start + 7 * dir
-      else if (unit === "quarter") ns = addMonths(snapBoundary(it.range.start, "month"), 3 * dir)
-      else ns = addMonths(snapBoundary(it.range.start, "month"), dir)
+      const ns =
+        unit === "day" ? it.range.start + dir
+        : unit === "week" ? it.range.start + 7 * dir
+        : addMonths(snapBoundary(it.range.start, "month"), (unit === "quarter" ? 3 : 1) * dir)
       patches[it.id] = { start: fromDay(ns), end: fromDay(ns + len - 1) }
     }
     st.begin("deslocar (teclado)")
@@ -176,7 +199,7 @@ export function TimelineCanvas() {
     st.end(`${dir > 0 ? "+" : "−"}1 ${unit}`)
   }
 
-  // ── Wheel: pan by default, Ctrl/⌘ (or pinch) zooms at the cursor ─────────
+  // ── Wheel: pan; Ctrl/⌘ (or pinch) zooms at the cursor ─────────────────────
   useEffect(() => {
     const el = svgRef.current
     if (!el) return
@@ -186,27 +209,30 @@ export function TimelineCanvas() {
       const rect = el.getBoundingClientRect()
       if (e.ctrlKey || e.metaKey || e.altKey) {
         v.zoomAt(Math.exp(-e.deltaY * 0.0022), e.clientX - rect.left - LABEL_W)
+        v.set({ range: null })
       } else {
         const dx = e.shiftKey ? e.deltaY : e.deltaX
         const dy = e.shiftKey ? 0 : e.deltaY
-        v.set({
-          x0: v.x0 + dx / v.pxPerDay,
-          scrollY: Math.max(0, Math.min(maxScrollRef.current, v.scrollY + dy)),
-        })
+        v.set({ x0: v.x0 + dx / v.pxPerDay, scrollY: Math.max(0, Math.min(maxScrollRef.current, v.scrollY + dy)), ...(dx ? { range: null } : {}) })
       }
     }
     el.addEventListener("wheel", onWheel, { passive: false })
     return () => el.removeEventListener("wheel", onWheel)
   }, [])
-  const maxScrollRef = useRef(maxScroll)
-  maxScrollRef.current = maxScroll
 
   // ── Pointer interactions ─────────────────────────────────────────────────
-  const local = (e: React.PointerEvent | PointerEvent) => {
+  const local = (e: { clientX: number; clientY: number }) => {
     const r = svgRef.current!.getBoundingClientRect()
     return { x: e.clientX - r.left, y: e.clientY - r.top }
   }
-  const rowYAt = (y: number) => y - RULER_H + scrollY
+  const bodyY = (y: number) => y - BODY_TOP + scrollY
+
+  function toggleGroup(key: "groupsCollapsed" | "groupsDetailed" | "groupsHidden", g: GroupId) {
+    useStudio.getState().commit("grupo", (d) => {
+      const cur = (d.settings[key] ?? []) as GroupId[]
+      return { ...d, settings: { ...d.settings, [key]: cur.includes(g) ? cur.filter((x) => x !== g) : [...cur, g] } }
+    })
+  }
 
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
     const st = useStudio.getState()
@@ -215,6 +241,14 @@ export function TimelineCanvas() {
     const hit = (e.target as Element).closest<SVGElement>("[data-hit]")
     const kind = hit?.dataset.hit
     const id = hit?.dataset.id ?? ""
+    setHover(null)
+
+    if (kind === "g-collapse") return toggleGroup("groupsCollapsed", id as GroupId)
+    if (kind === "g-detail") return toggleGroup("groupsDetailed", id as GroupId)
+    if (kind === "label" || kind === "item-static") {
+      st.select([id], e.shiftKey || e.metaKey || e.ctrlKey)
+      return
+    }
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
 
     if (e.button === 1 || spaceDown || v.tool === "hand" || (!hit && v.tool === "select" && !e.shiftKey)) {
@@ -224,10 +258,10 @@ export function TimelineCanvas() {
     if (v.tool === "note") {
       const target = kind?.startsWith("item") ? visible.find((i) => i.id === id) : undefined
       const day = Math.round(dayAt(p.x))
-      const rowTop = target ? rows.yOf(target) : null
-      const a: Annotation = target && rowTop != null
-        ? { id: uid("ann"), kind: "callout", text: "Nova anotação", date: fromDay(day), y: rowYAt(p.y) - rowTop - 44, linkedItemId: target.id, offsetDays: day - target.range.start, width: 200 }
-        : { id: uid("ann"), kind: "note", text: "Nova anotação", date: fromDay(day), y: rowYAt(p.y), width: 200 }
+      const row = target && layout.rowOf(target.id)
+      const a: Annotation = target && row
+        ? { id: uid("ann"), kind: "callout", text: "Nova anotação", date: fromDay(day), y: bodyY(p.y) - row.top - 46, linkedItemId: target.id, offsetDays: day - target.range.start, width: 200 }
+        : { id: uid("ann"), kind: "note", text: "Nova anotação", date: fromDay(day), y: bodyY(p.y), width: 200 }
       st.addAnnotation(a)
       v.set({ tool: "select" })
       return
@@ -239,7 +273,7 @@ export function TimelineCanvas() {
           st.toast("Origem escolhida. Clique no elemento de destino.", "info")
         } else {
           st.addLink({ id: uid("lk"), from: v.connectFrom, to: id })
-          v.set({ connectFrom: null, tool: "select" })
+          v.set({ connectFrom: null, tool: "select", showLinks: true })
         }
       }
       return
@@ -268,33 +302,44 @@ export function TimelineCanvas() {
       } else if (!ids.includes(id)) {
         st.select([id])
         ids = [id]
-      } else clickSelect = id // a click without drag on a multi-selection narrows it to this one
-      const orig: Record<string, { start: number; end: number; lane: number }> = {}
-      for (const i of visible) if (ids.includes(i.id) && !i.locked) orig[i.id] = { start: i.range.start, end: i.range.end, lane: i.lane }
-      gesture.current = { type: "move", anchor: id, ids: Object.keys(orig), sx: p.x, sy: p.y, orig, began: false, temporalReady: false, clickSelect }
+      } else clickSelect = id
+      const orig: Record<string, { start: number; end: number }> = {}
+      for (const i of visible) if (ids.includes(i.id) && !i.locked) orig[i.id] = { start: i.range.start, end: i.range.end }
+      gesture.current = { type: "move", anchor: id, ids: Object.keys(orig), sx: p.x, sy: p.y, orig, began: false, temporalReady: false, clickSelect, drop: null }
       return
     }
-    // Shift-drag on empty canvas: marquee selection.
     gesture.current = { type: "marquee", sx: p.x, sy: p.y, cx: p.x, cy: p.y, additive: e.shiftKey }
+  }
+
+  function showRangeHint(p: { x: number; y: number }, r: DayRange, orig: DayRange) {
+    const d = r.start - orig.start
+    setDragHint({
+      x: p.x,
+      y: p.y,
+      lines: [
+        `${fmtDate(fromDay(r.start))} → ${fmtDate(fromDay(r.end - 1))}`,
+        `${lengthDays(r)} dias · ${calendarMonthsTouched(r)} meses-calendário${d ? ` · ${d > 0 ? "+" : ""}${d} d` : ""}`,
+      ],
+    })
   }
 
   function onPointerMove(e: React.PointerEvent<SVGSVGElement>) {
     const g = gesture.current
-    const p = local(e)
     if (!g) return
+    const p = local(e)
     const st = useStudio.getState()
     const snap = settings.snap
     if (g.type === "pan") {
       const dx = p.x - g.sx
       const dy = p.y - g.sy
       if (Math.abs(dx) + Math.abs(dy) > 3) g.moved = true
-      useView.getState().set({ x0: g.x0 - dx / ppd, scrollY: Math.max(0, Math.min(maxScroll, g.scrollY - dy)) })
+      useView.getState().set({ x0: g.x0 - dx / ppd, scrollY: Math.max(0, Math.min(maxScroll, g.scrollY - dy)), ...(Math.abs(dx) > 3 ? { range: null } : {}) })
       return
     }
     if (g.type === "marquee") {
       g.cx = p.x
       g.cy = p.y
-      setHint({ x: 0, y: 0, lines: [] })
+      force((n) => n + 1)
       return
     }
     if (g.type === "ann") {
@@ -333,8 +378,8 @@ export function TimelineCanvas() {
       if (!anchor) return
       const delta = snapBoundary(anchor.start + raw, snap) - anchor.start
       const dy = p.y - g.sy
-      const laneDelta = Math.abs(dy) > ROW_H * 0.6 ? Math.round(dy / ROW_H) : 0
-      if (!g.began && delta === 0 && laneDelta === 0) return
+      const vertical = Math.abs(dy) > 18
+      if (!g.began && delta === 0 && !vertical) return
       if (delta !== 0 && !g.temporalReady) {
         if (!st.prepareEdit(g.anchor, true)) {
           gesture.current = null
@@ -346,37 +391,29 @@ export function TimelineCanvas() {
         st.begin(g.ids.length > 1 ? `mover ${g.ids.length} elementos` : "mover")
         g.began = true
       }
-      const patches: Record<string, { start?: string; end?: string; lane?: number }> = {}
-      for (const id of g.ids) {
-        const o = g.orig[id]
-        const patch: { start?: string; end?: string; lane?: number } = { lane: Math.max(0, o.lane + laneDelta) }
-        if (g.temporalReady) {
-          patch.start = fromDay(o.start + delta)
-          patch.end = fromDay(o.end + delta - 1)
+      // Vertical movement only chooses a row/group; it never changes the period.
+      g.drop = vertical ? layout.dropAt(bodyY(p.y)) : null
+      if (g.temporalReady) {
+        const patches: Record<string, { start: string; end: string }> = {}
+        for (const id of g.ids) {
+          const o = g.orig[id]
+          patches[id] = { start: fromDay(o.start + delta), end: fromDay(o.end + delta - 1) }
         }
-        patches[id] = patch
+        st.livePatchItems(patches)
       }
-      st.livePatchItems(patches)
       showRangeHint(p, { start: anchor.start + delta, end: anchor.end + delta }, anchor)
     }
-  }
-
-  function showRangeHint(p: { x: number; y: number }, r: DayRange, orig: DayRange) {
-    const d = r.start - orig.start
-    setHint({
-      x: p.x,
-      y: p.y,
-      lines: [
-        `${fmtDate(fromDay(r.start))} → ${fmtDate(fromDay(r.end - 1))}`,
-        `${lengthDays(r)} dias · ${calendarMonthsTouched(r)} meses-calendário${d ? ` · ${d > 0 ? "+" : ""}${d} d` : ""}`,
-      ],
-    })
+    if (g.type === "hscroll") {
+      const span = EXTENT_END - EXTENT_START
+      const trackW = size.w - LABEL_W
+      useView.getState().set({ x0: g.x0 + ((p.x - g.sx) / trackW) * span, range: null })
+    }
   }
 
   function onPointerUp(e: React.PointerEvent<SVGSVGElement>) {
     const g = gesture.current
     gesture.current = null
-    setHint(null)
+    setDragHint(null)
     const st = useStudio.getState()
     try {
       ;(e.currentTarget as Element).releasePointerCapture(e.pointerId)
@@ -392,23 +429,29 @@ export function TimelineCanvas() {
       const x1 = Math.min(g.sx, g.cx), x2 = Math.max(g.sx, g.cx)
       const y1 = Math.min(g.sy, g.cy), y2 = Math.max(g.sy, g.cy)
       const d1 = dayAt(x1), d2 = dayAt(x2)
-      const hits = visible.filter((it) => {
-        const ry = rows.yOf(it)
-        if (ry == null) return false
-        const top = Y(ry) + 6, bot = top + ROW_H - 12
-        return it.range.end > d1 && it.range.start < d2 && bot > y1 && top < y2
-      })
-      st.select(hits.map((h) => h.id), g.additive)
+      const hits = layout.rows
+        .filter((r): r is Extract<Row, { type: "item" }> => r.type === "item")
+        .filter((r) => {
+          const top = Y(r.top) + 6, bot = top + r.h - 12
+          return r.item.range.end > d1 && r.item.range.start < d2 && bot > y1 && top < y2
+        })
+      force((n) => n + 1)
+      st.select([...new Set(hits.map((h) => h.item.id))], g.additive)
       return
     }
     if (g.type === "move") {
       if (!g.began && g.clickSelect) st.select([g.clickSelect])
       if (g.began) {
+        if (g.drop) {
+          const drop = g.drop
+          st.live((d) => reorderRows(d, st.scenarioId, g.anchor, drop.group, layout.orderOf(drop.group), drop.index))
+        }
         const it = visible.find((i) => i.id === g.anchor)
-        st.end(it ? `${it.name}` : undefined)
+        st.end(it?.name)
       }
       return
     }
+    if (g.type === "hscroll") return
     if (g.began) {
       if (g.type === "resize-l" || g.type === "resize-r") {
         const it = visible.find((i) => i.id === g.id)
@@ -418,450 +461,606 @@ export function TimelineCanvas() {
   }
 
   // ── Ticks ────────────────────────────────────────────────────────────────
-  const tier = LOWER_TIER(ppd)
   const years: number[] = []
-  for (let y = ymd(visStart).y; y <= ymd(visEnd).y + 1; y++) years.push(y)
-  const lower: { day: number; label: string; strong?: boolean }[] = []
-  {
-    const a = ymd(visStart)
-    if (tier === "quarter") {
-      for (let y = a.y; y <= ymd(visEnd).y; y++) for (let q = 0; q < 4; q++) lower.push({ day: dayOf(y, q * 3 + 1), label: `T${q + 1}`, strong: q === 0 })
-    } else if (tier === "month") {
-      for (let d = dayOf(a.y, a.m); d <= visEnd; d = addMonths(d, 1)) {
-        const m = ymd(d).m
-        lower.push({ day: d, label: ppd > 2.2 ? monthShort(m) : monthShort(m)[0].toUpperCase(), strong: m === 1 })
-      }
-    } else if (tier === "week") {
-      for (let d = dayOf(a.y, a.m); d <= visEnd; d = addMonths(d, 1)) lower.push({ day: d, label: `${monthShort(ymd(d).m)}`, strong: true })
-      const w0 = visStart - ((ymd(visStart).dow + 6) % 7)
-      for (let d = w0; d <= visEnd; d += 7) lower.push({ day: d, label: String(ymd(d).d) })
-    } else {
-      for (let d = visStart; d <= visEnd; d++) {
-        const t = ymd(d)
-        lower.push({ day: d, label: String(t.d), strong: t.d === 1 })
-      }
+  for (let y = ymd(Math.max(visStart, EXTENT_START - 400)).y; y <= ymd(visEnd).y; y++) years.push(y)
+  const yearW = ppy
+  const halves: { day: number; label: string; end: number }[] = []
+  if (showSem) {
+    for (const y of years) {
+      if (showQuarters) for (let q = 0; q < 4; q++) halves.push({ day: dayOf(y, q * 3 + 1), end: dayOf(y, q * 3 + 4), label: `${q + 1}º tri` })
+      else
+        for (const h of [0, 1])
+          halves.push({ day: dayOf(y, h * 6 + 1), end: dayOf(y, h * 6 + 7), label: yearW / 2 >= 70 ? `${h + 1}º sem` : `S${h + 1}` })
     }
   }
+  const months: { day: number; label: string }[] = []
+  if (showMonths) {
+    const a = ymd(visStart)
+    const mw = ppd * 30.4
+    for (let d = dayOf(a.y, a.m); d <= visEnd; d = addMonths(d, 1)) {
+      const m = ymd(d).m
+      months.push({ day: d, label: mw >= 34 ? monthShort(m) : mw >= 11 ? monthShort(m)[0].toUpperCase() : "" })
+    }
+  }
+  const weeks: number[] = []
+  if (ppd >= 5) for (let d = visStart - ((ymd(visStart).dow + 6) % 7); d <= visEnd; d += 7) weeks.push(d)
+
+  // Project bands in the header, packed into sub-lanes so overlaps stay readable.
+  const bandLanes: { it: EffItem; lane: number }[] = []
+  {
+    const ends: number[] = []
+    for (const p of [...projects].sort((a, b) => a.range.start - b.range.start)) {
+      let lane = ends.findIndex((e) => e <= p.range.start)
+      if (lane < 0) lane = ends.length
+      ends[lane] = p.range.end
+      bandLanes.push({ it: p, lane })
+    }
+  }
+  const bandRows = Math.max(1, Math.min(2, new Set(bandLanes.map((b) => b.lane)).size))
+  const bandH = (PROJ_H - 6) / bandRows
 
   const sel = new Set(selection)
   const compareMap = useMemo(() => new Map((compare ?? []).map((c) => [c.id, c])), [compare])
   const byId = useMemo(() => new Map(visible.map((i) => [i.id, i])), [visible])
-  const scenario = doc.scenarios.find((s) => s.id === useStudio.getState().scenarioId)
 
   const g = gesture.current
   const marquee = g && g.type === "marquee" ? g : null
+  const dropLine = g && g.type === "move" && g.drop ? g.drop : null
   const cursor = spaceDown || view.tool === "hand" ? "grab" : view.tool === "note" ? "copy" : view.tool === "connect" ? "crosshair" : "default"
+  const timeW = size.w - LABEL_W
 
-  const postVigFrom = vigencias.length ? Math.min(...vigencias.map((v) => v.range.end)) : null
-  const maxOverEnd = overruns.length ? Math.max(...overruns.map((o) => o.after.end)) : null
+  const hoverItem = hover ? byId.get(hover.id) : undefined
 
   return (
-    <div ref={wrapRef} className="relative h-full w-full overflow-hidden bg-canvas select-none">
+    <div ref={wrapRef} className="relative h-full w-full overflow-hidden bg-white select-none">
       <svg
         ref={svgRef}
         id="timeline-svg"
         xmlns="http://www.w3.org/2000/svg"
         width={size.w}
         height={size.h}
-        style={{ cursor, display: "block", touchAction: "none", fontFamily: "Inter Tight, system-ui, sans-serif" }}
+        style={{ cursor, display: "block", touchAction: "none", fontFamily: "Inter, system-ui, sans-serif" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={() => {
           useStudio.getState().cancel()
           gesture.current = null
-          setHint(null)
+          setDragHint(null)
         }}
         onDoubleClick={(e) => {
           const hit = (e.target as Element).closest<SVGElement>("[data-hit]")
-          if (hit?.dataset.hit?.startsWith("item")) useStudio.getState().setEditing(hit.dataset.id ?? null)
-          if (hit?.dataset.hit === "ann") useStudio.setState({ selectedAnnotation: hit.dataset.id ?? null })
+          const k = hit?.dataset.hit
+          if (k === "item" || k === "item-static" || k === "label") useStudio.getState().setEditing(hit?.dataset.id ?? null)
         }}
       >
         <defs>
-          <pattern id="hatch-after" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate(45)">
-            <rect width="7" height="7" fill={BRAND.orange} fillOpacity="0.18" />
-            <line x1="0" y1="0" x2="0" y2="7" stroke={BRAND.orange} strokeWidth="2.4" strokeOpacity="0.85" />
+          <pattern id="stripe-after" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)">
+            <rect width="8" height="8" fill={C.red} />
+            <line x1="0" y1="0" x2="0" y2="8" stroke="#FFFFFF" strokeWidth="2" strokeOpacity="0.28" />
           </pattern>
-          <pattern id="hatch-undetermined" patternUnits="userSpaceOnUse" width="10" height="10" patternTransform="rotate(-45)">
-            <line x1="0" y1="0" x2="0" y2="10" stroke="#ffffff" strokeWidth="1" strokeOpacity="0.18" />
-          </pattern>
-          <linearGradient id="fade-undetermined" x1="0" x2="1">
-            <stop offset="0" stopColor="#fff" stopOpacity="0" />
-            <stop offset="0.12" stopColor="#fff" stopOpacity="1" />
-            <stop offset="0.88" stopColor="#fff" stopOpacity="1" />
-            <stop offset="1" stopColor="#fff" stopOpacity="0" />
-          </linearGradient>
-          <mask id="mask-undetermined" maskContentUnits="objectBoundingBox">
-            <rect width="1" height="1" fill="url(#fade-undetermined)" />
-          </mask>
           <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0,0 L10,5 L0,10 z" fill="#9FB6E8" />
+            <path d="M0,0 L10,5 L0,10 z" fill={C.text2} />
           </marker>
           <clipPath id="clip-body">
-            <rect x={LABEL_W} y={RULER_H} width={Math.max(0, size.w - LABEL_W)} height={Math.max(0, bodyH)} />
+            <rect x={LABEL_W} y={BODY_TOP} width={Math.max(0, timeW)} height={bodyH} />
           </clipPath>
           <clipPath id="clip-labels">
-            <rect x={0} y={RULER_H} width={LABEL_W} height={Math.max(0, bodyH)} />
+            <rect x={0} y={BODY_TOP} width={LABEL_W} height={bodyH} />
+          </clipPath>
+          <clipPath id="clip-header">
+            <rect x={LABEL_W} y={0} width={Math.max(0, timeW)} height={HEADER} />
           </clipPath>
         </defs>
 
-        <rect x={0} y={0} width={size.w} height={size.h} fill="#060D20" />
+        <rect x={0} y={0} width={size.w} height={size.h} fill="#FFFFFF" />
 
         {/* ── Body ─────────────────────────────────────────────────────── */}
         <g clipPath="url(#clip-body)">
-          {/* Layer bands */}
-          {rows.blocks.map((b, i) => (
-            <rect key={b.id} x={LABEL_W} y={Y(b.top)} width={size.w} height={b.height} fill={i % 2 ? "#071027" : "#08132D"} />
-          ))}
-          {/* Vigência background band */}
-          {vigencias.map((v) => (
-            <rect key={`vb-${v.id}`} x={X(v.range.start)} y={RULER_H} width={Math.max(0, (v.range.end - v.range.start) * ppd)} height={bodyH} fill={BRAND.orange} fillOpacity={0.045} />
-          ))}
-          {/* After the vigência: a distinct but quiet region, up to the last activity that continues */}
-          {postVigFrom != null && maxOverEnd != null && maxOverEnd > postVigFrom && (
-            <rect x={X(postVigFrom)} y={RULER_H} width={(maxOverEnd - postVigFrom) * ppd} height={bodyH} fill="url(#hatch-undetermined)" opacity={0.6} />
+          {/* After the documental vigência: very light red, never hiding the bars */}
+          {docVig && <rect x={X(docVig.end)} y={BODY_TOP} width={Math.max(0, size.w - X(docVig.end))} height={bodyH} fill={C.redSoft} />}
+          {layout.rows.map((r, i) =>
+            r.type === "group" ? (
+              <rect key={`gb${i}`} x={LABEL_W} y={Y(r.top)} width={timeW} height={r.h} fill="#FFFFFF" fillOpacity={0.6} />
+            ) : r.type === "item" && r.index % 2 === 1 && !r.virtual ? (
+              <rect key={`z${i}`} x={LABEL_W} y={Y(r.top)} width={timeW} height={r.h} fill={C.zebra} fillOpacity={0.75} />
+            ) : null,
           )}
           {/* Grid */}
-          {lower.map((t, i) => (
-            <line key={`g${i}`} x1={X(t.day)} x2={X(t.day)} y1={RULER_H} y2={size.h} stroke={t.strong ? BRAND.gridStrong : BRAND.grid} strokeWidth={1} />
+          {months.map((m, i) => (
+            <line key={`gm${i}`} x1={X(m.day)} x2={X(m.day)} y1={BODY_TOP} y2={size.h} stroke={C.gridSoft} />
+          ))}
+          {halves.map((h, i) => (
+            <line key={`gh${i}`} x1={X(h.day)} x2={X(h.day)} y1={BODY_TOP} y2={size.h} stroke={C.grid} strokeDasharray="3 4" />
           ))}
           {years.map((y) => (
-            <line key={`gy${y}`} x1={X(dayOf(y, 1))} x2={X(dayOf(y, 1))} y1={RULER_H} y2={size.h} stroke="#2A3F78" strokeWidth={1.2} />
-          ))}
-          {/* Layer headers in the body */}
-          {rows.blocks.map((b) => (
-            <line key={`h-${b.id}`} x1={LABEL_W} x2={size.w} y1={Y(b.top) + 0.5} y2={Y(b.top) + 0.5} stroke="#1A2A52" />
+            <line key={`gy${y}`} x1={X(dayOf(y, 1))} x2={X(dayOf(y, 1))} y1={BODY_TOP} y2={size.h} stroke="#C9D3DE" />
           ))}
 
           {/* Compare scenario ghosts */}
           {compare &&
-            visible.map((it) => {
-              const c = compareMap.get(it.id)
-              const ry = rows.yOf(it)
-              if (!c || ry == null || (c.range.start === it.range.start && c.range.end === it.range.end)) return null
+            layout.rows.map((r, i) => {
+              if (r.type !== "item" || r.virtual) return null
+              const c = compareMap.get(r.item.id)
+              if (!c || (c.range.start === r.item.range.start && c.range.end === r.item.range.end)) return null
               return (
-                <rect key={`cmp-${it.id}`} x={X(c.range.start)} y={Y(ry) + 4} width={Math.max(2, (c.range.end - c.range.start) * ppd)} height={ROW_H - 8} rx={6}
-                  fill="none" stroke={BRAND.scenario} strokeWidth={1.5} strokeDasharray="3 3" opacity={0.9} pointerEvents="none" />
+                <rect key={`cmp${i}`} x={X(c.range.start)} y={Y(r.top) + (r.h - BAR_H) / 2 - 2} width={Math.max(2, (c.range.end - c.range.start) * ppd)} height={BAR_H + 4} rx={4}
+                  fill="none" stroke="#7C5CC4" strokeWidth={1.5} strokeDasharray="3 3" pointerEvents="none" />
               )
             })}
 
-          {/* Links */}
-          {view.showLinks &&
-            doc.links.map((l) => {
-              const a = byId.get(l.from)
-              const b = byId.get(l.to)
-              const ya = a && rows.yOf(a)
-              const yb = b && rows.yOf(b)
-              if (!a || !b || ya == null || yb == null) return null
-              const ax = X(Math.min(a.range.end, Math.max(a.range.start, b.range.start)))
-              const ay = Y(ya) + ROW_H / 2
-              const bx = X(b.range.start) + 2
-              const by = Y(yb) + ROW_H / 2
-              const dx = Math.max(30, Math.abs(bx - ax) / 2)
-              const sameStart = Math.abs(bx - ax) < 8
-              const d = sameStart
-                ? `M${ax + 10},${ay + 12} C${ax - 30},${ay + 12} ${bx - 30},${by - 12} ${bx + 8},${by - 12}`
-                : `M${ax},${ay} C${ax + dx},${ay} ${bx - dx},${by} ${bx},${by}`
-              return (
-                <g key={l.id} opacity={0.75}>
-                  <path d={d} fill="none" stroke="#9FB6E8" strokeWidth={1.4} strokeDasharray="4 3" markerEnd="url(#arrow)" />
-                  {l.label && (
-                    <text x={(ax + bx) / 2} y={(ay + by) / 2 - 6} fontSize={10} fill="#9FB6E8" textAnchor="middle">{l.label}</text>
-                  )}
-                </g>
-              )
-            })}
+          {layout.rows.map((r, i) => {
+            if (r.type !== "item") return null
+            return <g key={`${r.item.id}${r.virtual ?? ""}${i}`}>{ItemBar({ r })}</g>
+          })}
 
-          {/* Items */}
-          {visible.map((it) => {
-            const ry = rows.yOf(it)
-            if (ry == null) return null
-            const block = rows.blocks.find((b) => b.id === it.layer)
-            const collapsed = block?.collapsed
-            const color = itemColor(it.kind, colorOf(it.projectId), it.color)
-            const st = barStyle(it.certainty)
-            const top = Y(ry) + (collapsed ? 2 : 5)
-            const h = collapsed ? COLLAPSED_H - 4 : ROW_H - 10
-            const x1 = X(it.range.start)
-            const x2 = X(it.range.end)
-            if (x2 < LABEL_W - 40 || x1 > size.w + 40) return null
-            const w = Math.max(2, x2 - x1)
-            const isSel = sel.has(it.id)
-            const over = overruns.find((o) => o.item.id === it.id)
-            const dim = dimmed(it)
-            const isMarco = it.kind === "marco"
-
-            if (isMarco) {
-              const cx = x1
-              const cy = top + h / 2
-              return (
-                <g key={it.id} opacity={dim ? 0.25 : 1}>
-                  <line x1={cx} x2={cx} y1={top - 2} y2={top + h + 2} stroke={color} strokeWidth={1} strokeDasharray="2 2" />
-                  <path data-hit="item" data-id={it.id} d={`M${cx},${cy - 9} L${cx + 9},${cy} L${cx},${cy + 9} L${cx - 9},${cy} Z`}
-                    fill={st.fillOpacity > 0.5 ? color : "#0B1736"} stroke={color} strokeWidth={2} strokeDasharray={st.dash} style={{ cursor: it.locked ? "not-allowed" : "grab" }} />
-                  {isSel && <circle cx={cx} cy={cy} r={13} fill="none" stroke="#fff" strokeWidth={1.5} />}
-                  {!collapsed && (
-                    <text x={cx + 14} y={cy + 4} fontSize={12} fill="#DCE6FF" pointerEvents="none">
-                      {fmtDate(it.start)} · {truncate(it.name, 260)}
-                    </text>
-                  )}
-                </g>
-              )
-            }
-
-            const labelInside = w > 90
-            const textX = labelInside ? Math.max(x1, LABEL_W) + 10 : x2 + 8
-            const labelRoom = labelInside ? Math.min(x2, size.w) - Math.max(x1, LABEL_W) - (over ? 0 : 20) : 280
-
+          {/* Links: only on demand or for the selected record */}
+          {doc.links.map((l) => {
+            const show = view.showLinks || sel.has(l.from) || sel.has(l.to)
+            if (!show) return null
+            const a = byId.get(l.from)
+            const b = byId.get(l.to)
+            const ra = a && layout.rowOf(a.id)
+            const rb = b && layout.rowOf(b.id)
+            if (!a || !b || !ra || !rb) return null
+            const ax = X(Math.min(a.range.end, Math.max(a.range.start, b.range.start))) + 4
+            const ay = Y(ra.top) + ra.h / 2
+            const bx = X(b.range.start) + 2
+            const by = Y(rb.top) + rb.h / 2
+            const midX = Math.min(ax, bx) - 18
+            const d = `M${ax},${ay} C${midX},${ay} ${midX},${by} ${bx},${by}`
             return (
-              <g key={it.id} opacity={dim ? 0.22 : 1} style={{ color }} onPointerEnter={() => setHover(it.id)} onPointerLeave={() => setHover((h0) => (h0 === it.id ? null : h0))}>
-                {/* Baseline ghost when the scenario moved this record */}
-                {it.baseRange && !collapsed && (
-                  <rect x={X(it.baseRange.start)} y={top - 1} width={Math.max(2, (it.baseRange.end - it.baseRange.start) * ppd)} height={h + 2} rx={7}
-                    fill="none" stroke="#ffffff" strokeOpacity={0.35} strokeDasharray="2 3" pointerEvents="none" />
-                )}
-                <rect
-                  data-hit="item"
-                  data-id={it.id}
-                  x={x1}
-                  y={top}
-                  width={w}
-                  height={h}
-                  rx={collapsed ? 3 : 7}
-                  fill={color}
-                  fillOpacity={st.fillOpacity}
-                  stroke={st.strokeOpacity ? color : "none"}
-                  strokeOpacity={st.strokeOpacity}
-                  strokeWidth={1.6}
-                  strokeDasharray={st.dash}
-                  mask={it.dateUndetermined ? "url(#mask-undetermined)" : undefined}
-                  style={{ cursor: it.locked ? "not-allowed" : "grab" }}
-                />
-                {it.dateUndetermined && !collapsed && (
-                  <rect x={x1} y={top} width={w} height={h} rx={7} fill="url(#hatch-undetermined)" pointerEvents="none" />
-                )}
-                {/* Continuity after vigência: the bar continues; the overflow is hatched, never cut. */}
-                {over && (
-                  <rect x={X(over.after.start)} y={top} width={Math.max(2, (over.after.end - over.after.start) * ppd)} height={h} rx={collapsed ? 3 : 7}
-                    fill="url(#hatch-after)" stroke={BRAND.orange} strokeWidth={1.2} pointerEvents="none" />
-                )}
-                {!collapsed && (
-                  <>
-                    <text x={textX} y={top + h / 2 + 4} fontSize={12} fontWeight={600} fill={st.fillOpacity > 0.5 && labelInside ? "#ffffff" : "#DCE6FF"} pointerEvents="none">
-                      {truncate(it.name, labelRoom)}
-                      {it.dateUndetermined && labelRoom > 330 ? "  · datas não comprovadas" : ""}
-                    </text>
-                    {st.pending && w > 24 && (
-                      <g pointerEvents="none" transform={`translate(${Math.min(x2, size.w) - 14},${top + 4})`}>
-                        <circle cx={5} cy={5} r={6} fill="#0A1633" stroke="#FFD08A" strokeWidth={1} />
-                        <text x={5} y={8.5} fontSize={9} fontWeight={800} textAnchor="middle" fill="#FFD08A">!</text>
-                      </g>
-                    )}
-                    {it.changed && (
-                      <g pointerEvents="none" transform={`translate(${x1 - 2},${top - 7})`}>
-                        <rect width={18} height={13} rx={3} fill={BRAND.scenario} />
-                        <text x={9} y={10} fontSize={9.5} fontWeight={800} textAnchor="middle" fill="#1B1240">Δ</text>
-                      </g>
-                    )}
-                    {over && (
-                      <g pointerEvents="none" transform={`translate(${X(over.after.end) + 6},${top + h / 2 + 4})`}>
-                        <text fontSize={11} fontWeight={700} fill={BRAND.orange}>+{over.months} m após vigência</text>
-                      </g>
-                    )}
-                    {it.locked && (
-                      <text x={x1 + 4} y={top - 2} fontSize={9} fill="#93A3C8" pointerEvents="none">bloqueado</text>
-                    )}
-                  </>
-                )}
-                {isSel && (
-                  <>
-                    <rect x={x1 - 2} y={top - 2} width={w + 4} height={h + 4} rx={8} fill="none" stroke="#ffffff" strokeWidth={1.6} pointerEvents="none" />
-                    {!it.locked && !collapsed && (
-                      <>
-                        <rect data-hit="item-l" data-id={it.id} x={x1 - 5} y={top + 3} width={8} height={h - 6} rx={3} fill="#ffffff" style={{ cursor: "ew-resize" }} />
-                        <rect data-hit="item-r" data-id={it.id} x={x2 - 3} y={top + 3} width={8} height={h - 6} rx={3} fill="#ffffff" style={{ cursor: "ew-resize" }} />
-                      </>
-                    )}
-                  </>
-                )}
-                {/* Invisible edge grips so an unselected bar can be resized directly too */}
-                {!isSel && !it.locked && !collapsed && w > 16 && (
-                  <>
-                    <rect data-hit="item-l" data-id={it.id} x={x1 - 3} y={top} width={7} height={h} fill="transparent" style={{ cursor: "ew-resize" }} />
-                    <rect data-hit="item-r" data-id={it.id} x={x2 - 4} y={top} width={7} height={h} fill="transparent" style={{ cursor: "ew-resize" }} />
-                  </>
-                )}
-                {hover === it.id && !isSel && !collapsed && (
-                  <rect x={x1 - 1} y={top - 1} width={w + 2} height={h + 2} rx={8} fill="none" stroke="#ffffff" strokeOpacity={0.45} pointerEvents="none" />
-                )}
+              <g key={l.id} pointerEvents="none">
+                <path d={d} fill="none" stroke={C.text2} strokeWidth={1.3} strokeDasharray="4 3" markerEnd="url(#arrow)" />
+                {l.label && <text x={midX - 4} y={(ay + by) / 2} fontSize={10.5} fill={C.text2} textAnchor="end">{l.label}</text>}
               </g>
             )
           })}
 
-          {/* Vigência end markers */}
-          {vigencias.map((v) => (
-            <g key={`ve-${v.id}`} pointerEvents="none">
-              <line x1={X(v.range.end)} x2={X(v.range.end)} y1={RULER_H} y2={size.h} stroke={BRAND.orange} strokeWidth={2} />
-            </g>
-          ))}
           {/* Reference date */}
-          <line x1={X(refDay)} x2={X(refDay)} y1={RULER_H} y2={size.h} stroke={BRAND.ref} strokeWidth={1.4} strokeDasharray="5 4" pointerEvents="none" />
+          <line x1={X(refDay)} x2={X(refDay)} y1={BODY_TOP} y2={size.h} stroke="#5FA548" strokeWidth={2.5} pointerEvents="none" />
+          {/* Vigência markers */}
+          {hypVig && <line x1={X(hypVig.end)} x2={X(hypVig.end)} y1={BODY_TOP} y2={size.h} stroke={C.navy} strokeWidth={2} strokeDasharray="7 5" pointerEvents="none" />}
+          {docVig && <line x1={X(docVig.end)} x2={X(docVig.end)} y1={BODY_TOP} y2={size.h} stroke={C.red} strokeWidth={2.5} pointerEvents="none" />}
 
           {/* Annotations */}
-          {view.showAnnotations &&
-            doc.annotations.map((a) => {
-              const linked = a.linkedItemId ? byId.get(a.linkedItemId) : undefined
-              let day: number
-              let rowY: number
-              let anchor: { x: number; y: number } | null = null
-              if (linked) {
-                const ry = rows.yOf(linked)
-                if (ry == null) return null
-                day = linked.range.start + (a.offsetDays ?? 0)
-                rowY = ry + a.y
-                anchor = { x: X(Math.min(linked.range.end, Math.max(linked.range.start, day))), y: Y(ry) + ROW_H / 2 }
-              } else if (a.linkedItemId) {
-                return null
-              } else {
-                day = toDay(a.date)
-                rowY = a.y
-              }
-              const x = X(day)
-              const y = Y(rowY)
-              const isSelA = selectedAnnotation === a.id
-              if (a.kind === "marker") {
-                return (
-                  <g key={a.id}>
-                    <line x1={x} x2={x} y1={RULER_H} y2={size.h} stroke="#FFD08A" strokeDasharray="1 3" />
-                    <g data-hit="ann" data-id={a.id} style={{ cursor: "move" }} transform={`translate(${x},${y})`}>
-                      <path d="M0,0 L0,22 M0,0 L14,5 L0,10" stroke="#FFD08A" strokeWidth={2} fill="#FFD08A" />
-                      <text x={18} y={10} fontSize={12} fontWeight={600} fill="#FFE2B3">{a.text}</text>
-                      {isSelA && <rect x={-4} y={-4} width={30 + a.text.length * 6.6} height={30} fill="none" stroke="#fff" strokeDasharray="3 2" />}
-                    </g>
-                  </g>
-                )
-              }
-              if (a.kind === "highlight") {
-                const wpx = Math.max(20, (a.width ?? 90) * ppd)
-                return (
-                  <g key={a.id} data-hit="ann" data-id={a.id} style={{ cursor: "move" }}>
-                    <rect x={x} y={RULER_H} width={wpx} height={bodyH} fill="#FFD08A" fillOpacity={0.08} stroke={isSelA ? "#fff" : "#FFD08A"} strokeOpacity={0.5} strokeDasharray="4 3" />
-                    <text x={x + 6} y={y + 14} fontSize={12} fontWeight={600} fill="#FFE2B3">{a.text}</text>
-                  </g>
-                )
-              }
-              const width = a.width ?? 200
-              const lines = wrapText(a.text, width - 20)
-              const hh = lines.length * 16 + 14
-              const palette = a.kind === "note" ? { bg: "#FFF3C4", fg: "#3A2A00", bd: "#E9C46A" } : a.kind === "comment" ? { bg: "#DDE7FF", fg: "#0A1633", bd: "#9FB6E8" } : { bg: "#0E1D45", fg: "#E8EEFC", bd: a.color ?? BRAND.orange }
-              return (
-                <g key={a.id}>
-                  {anchor && (
-                    <path d={`M${x + 12},${y + hh} L${anchor.x},${anchor.y}`} stroke={palette.bd} strokeWidth={1.3} fill="none" markerEnd="url(#arrow)" pointerEvents="none" />
-                  )}
-                  <g data-hit="ann" data-id={a.id} transform={`translate(${x},${y})`} style={{ cursor: "move" }}>
-                    <rect width={width} height={hh} rx={a.kind === "comment" ? 12 : 6} fill={palette.bg} stroke={isSelA ? "#ffffff" : palette.bd} strokeWidth={isSelA ? 2 : 1.2} />
-                    {a.kind === "callout" && <rect width={4} height={hh} rx={2} fill={palette.bd} />}
-                    {lines.map((ln, i) => (
-                      <text key={i} x={12} y={20 + i * 16} fontSize={12} fontWeight={a.kind === "callout" ? 600 : 500} fill={palette.fg}>{ln}</text>
-                    ))}
-                  </g>
-                </g>
-              )
-            })}
+          {view.showAnnotations && doc.annotations.map((a) => <g key={a.id}>{AnnotationShape({ a })}</g>)}
+
+          {/* Drop indicator for a vertical move */}
+          {dropLine && <line x1={LABEL_W - 120} x2={size.w} y1={Y(dropLine.lineY)} y2={Y(dropLine.lineY)} stroke={C.blue} strokeWidth={2.5} pointerEvents="none" />}
         </g>
 
-        {/* ── Label column ─────────────────────────────────────────────── */}
-        <rect x={0} y={RULER_H} width={LABEL_W} height={bodyH} fill="#08112A" />
+        {/* Marker captions (bottom of body) */}
+        <g pointerEvents="none" fontSize={12} fontWeight={700}>
+          {docVig && X(docVig.end) > LABEL_W && X(docVig.end) < size.w && (
+            <g transform={`translate(${X(docVig.end) + 6},${size.h - 34})`}>
+              <rect x={-2} y={-15} width={textWidth(`↑ ${fmtDate(fromDay(docVig.end - 1))} · encerramento da vigência`, 12.5) + 10} height={21} fill="#FFFFFF" fillOpacity={0.92} />
+              <text fill={C.red} fontSize={12.5}>↑ {fmtDate(fromDay(docVig.end - 1))} · encerramento da vigência de referência</text>
+            </g>
+          )}
+          {hypVig && X(hypVig.end) > LABEL_W && X(hypVig.end) < size.w && (
+            <g transform={`translate(${X(hypVig.end) + 6},${size.h - 14})`}>
+              <text fill={C.navy}>┆ {fmtDate(fromDay(hypVig.end - 1))} · cenário simulado (não aprovado)</text>
+            </g>
+          )}
+          {X(refDay) > LABEL_W && X(refDay) < size.w && (
+            <text x={X(refDay) - 6} y={size.h - 14} textAnchor="end" fill="#3E7D2C">referência {fmtDate(settings.referenceDate)}</text>
+          )}
+        </g>
+
+        {/* ── Label column (fixed while scrolling horizontally) ───────────── */}
+        <rect x={0} y={BODY_TOP} width={LABEL_W} height={bodyH} fill="#FFFFFF" />
         <g clipPath="url(#clip-labels)">
-          {rows.blocks.map((b) => (
-            <g key={`lbl-${b.id}`}>
-              <text x={14} y={Y(b.top) + 17} fontSize={11} fontWeight={700} letterSpacing={1.2} fill="#BFD0F5">{b.label.toUpperCase()}</text>
-              {!b.collapsed && (
-                <text x={14} y={Y(b.top) + HEADER_H + 14} fontSize={10.5} fill="#6F82B0">
-                  {b.lanes} {b.lanes === 1 ? "faixa" : "faixas"}
+          {layout.rows.map((r, i) => <g key={`l${i}`}>{RowLabel({ r })}</g>)}
+        </g>
+        <line x1={LABEL_W} x2={LABEL_W} y1={0} y2={size.h} stroke={C.grid} />
+
+        {/* ── Header: projects · years · semesters · months ──────────────── */}
+        <rect x={0} y={0} width={size.w} height={HEADER} fill="#FFFFFF" />
+        <g clipPath="url(#clip-header)">
+          {bandLanes.map(({ it, lane }) => {
+            const color = colorOf(it.projectId)
+            const hyp = it.certainty === "hipotese"
+            const x1 = X(it.range.start)
+            const w = Math.max(2, X(it.range.end) - x1)
+            const y = 3 + lane * bandH
+            const proj = doc.projects.find((p) => p.id === it.projectId)
+            const label = `${proj?.name ?? it.name}${hyp ? " · proposta" : ""}`
+            return (
+              <g key={`pb${it.id}`} data-hit="label" data-id={it.id} style={{ cursor: "pointer" }} opacity={dimmed(it) ? 0.3 : 1}>
+                <rect x={x1 + 1} y={y} width={w - 2} height={bandH - 2} rx={3} fill={hyp ? "#FFFFFF" : color} stroke={color} strokeWidth={hyp ? 1.5 : 0} strokeDasharray={hyp ? "5 3" : undefined} />
+                <text x={Math.max(x1, LABEL_W) + 8} y={y + bandH / 2 + 3.5} fontSize={bandRows > 1 ? 10.5 : 12} fontWeight={700} fill={hyp ? color : "#FFFFFF"}>
+                  {truncate(label, Math.min(X(it.range.end), size.w) - Math.max(x1, LABEL_W) - 14, bandRows > 1 ? 10.5 : 12)}
                 </text>
+                <title>{`${it.name} · ${fmtDate(it.start, it.precision)} – ${fmtDate(it.end, it.precision)}`}</title>
+              </g>
+            )
+          })}
+          {years.map((y) => {
+            const x1 = X(dayOf(y, 1))
+            const x2 = X(dayOf(y + 1, 1))
+            const skip = (yearW < 46 && y % 2 === 1) || Math.min(x2, size.w) - Math.max(x1, LABEL_W) < 40
+            return (
+              <g key={`hy${y}`}>
+                <rect x={x1 + 1} y={PROJ_H} width={Math.max(0, x2 - x1 - 2)} height={YEAR_H - 2} fill="#E6EBF1" />
+                {!skip && (
+                  <text x={(Math.max(x1, LABEL_W) + Math.min(x2, size.w)) / 2} y={PROJ_H + 17} fontSize={14} fontWeight={700} fill={C.text} textAnchor="middle">{y}</text>
+                )}
+              </g>
+            )
+          })}
+          {halves.map((h, i) => (
+            <g key={`hs${i}`}>
+              <rect x={X(h.day) + 1} y={PROJ_H + YEAR_H} width={Math.max(0, X(h.end) - X(h.day) - 2)} height={SEM_H - 2} fill="#F1F4F8" />
+              {X(h.end) - X(h.day) > 26 && (
+                <text x={X(h.day) + (X(h.end) - X(h.day)) / 2} y={PROJ_H + YEAR_H + 14} fontSize={11.5} fontWeight={600} fill={C.text2} textAnchor="middle">{h.label}</text>
               )}
-              <line x1={0} x2={LABEL_W} y1={Y(b.top) + 0.5} y2={Y(b.top) + 0.5} stroke="#1A2A52" />
             </g>
           ))}
-        </g>
-        <line x1={LABEL_W} x2={LABEL_W} y1={0} y2={size.h} stroke="#1F2F57" />
-
-        {/* ── Ruler ────────────────────────────────────────────────────── */}
-        <rect x={0} y={0} width={size.w} height={RULER_H} fill="#0A1430" />
-        <g>
-          <svg x={LABEL_W} y={0} width={Math.max(0, size.w - LABEL_W)} height={RULER_H} overflow="hidden">
-            {years.map((y) => {
-              const xs = X(dayOf(y, 1)) - LABEL_W
-              return (
-                <g key={`ry${y}`}>
-                  <line x1={xs} x2={xs} y1={0} y2={RULER_H} stroke="#2A3F78" />
-                  <text x={Math.min(Math.max(xs + 8, 8), X(dayOf(y + 1, 1)) - LABEL_W - 44)} y={19} fontSize={13} fontWeight={700} fill="#E8EEFC">{y}</text>
-                </g>
-              )
-            })}
-            {lower.map((t, i) => {
-              const xs = X(t.day) - LABEL_W
-              return (
-                <g key={`rl${i}`}>
-                  <line x1={xs} x2={xs} y1={t.strong ? 28 : 34} y2={RULER_H} stroke={t.strong ? "#2A3F78" : "#1C2C57"} />
-                  {(tier !== "day" || ppd > 22) && <text x={xs + 4} y={45} fontSize={10.5} fill="#8FA2CF">{t.label}</text>}
-                </g>
-              )
-            })}
-            {/* Marker flags in the ruler */}
-            {vigencias.map((v) => (
-              <g key={`rf-${v.id}`} transform={`translate(${X(v.range.end) - LABEL_W},0)`}>
-                <rect x={-1} y={0} width={2} height={RULER_H} fill={BRAND.orange} />
-                <rect x={4} y={24} width={142} height={16} rx={4} fill={BRAND.orange} />
-                <text x={10} y={36} fontSize={10} fontWeight={700} fill="#1A0B00">Fim vigência {fmtDate(fromDay(v.range.end - 1))}</text>
+          {months.map((m, i) => {
+            const w = X(addMonths(m.day, 1)) - X(m.day)
+            const isAfter = docVig && m.day >= docVig.end
+            return (
+              <g key={`hm${i}`}>
+                {isAfter && <rect x={X(m.day)} y={HEADER - MONTH_H - 4} width={w} height={MONTH_H} fill={C.redSoft} />}
+                {m.label && (
+                  <text x={X(m.day) + w / 2} y={HEADER - 9} fontSize={9.5} fontFamily="JetBrains Mono, monospace" fill={docVig && m.day === docVig.end ? C.red : "#8796A8"} fontWeight={docVig && m.day === docVig.end ? 800 : 500} textAnchor="middle">
+                    {m.label}
+                  </text>
+                )}
               </g>
-            ))}
-            <g transform={`translate(${X(refDay) - LABEL_W},0)`}>
-              <rect x={-1} y={22} width={2} height={RULER_H - 22} fill={BRAND.ref} />
-              <rect x={-118} y={24} width={114} height={16} rx={4} fill="#0E2A4D" stroke={BRAND.ref} strokeWidth={1} />
-              <text x={-112} y={36} fontSize={10} fontWeight={700} fill={BRAND.ref}>Referência {fmtDate(settings.referenceDate)}</text>
-            </g>
-          </svg>
+            )
+          })}
+          {weeks.map((d) => (
+            <line key={`wk${d}`} x1={X(d)} x2={X(d)} y1={HEADER - 4} y2={HEADER} stroke="#C9D3DE" />
+          ))}
+          {docVig && <line x1={X(docVig.end)} x2={X(docVig.end)} y1={PROJ_H + YEAR_H} y2={HEADER} stroke={C.red} strokeWidth={2.5} />}
         </g>
-        <text x={14} y={20} fontSize={11} fontWeight={700} fill="#E8EEFC">{scenario?.name ?? ""}</text>
-        <text x={14} y={38} fontSize={10} fill="#6F82B0">
-          {tier === "quarter" ? "anos · trimestres" : tier === "month" ? "anos · meses" : tier === "week" ? "meses · semanas" : "meses · dias"}
-        </text>
-        <line x1={0} x2={size.w} y1={RULER_H} y2={RULER_H} stroke="#1F2F57" />
+        {/* Header corner: the page's title block */}
+        <text x={18} y={26} fontSize={17} fontWeight={800} fill={C.text} fontFamily="Inter Tight, Inter, sans-serif">Tempo: Vigência x Projeto</text>
+        <text x={18} y={44} fontSize={11.5} fill={C.text2}>SKA Tech Hub — Projetos 1, 2 e 3</text>
+        <line x1={0} x2={size.w} y1={HEADER} y2={HEADER} stroke={C.grid} />
 
-        {/* Marquee */}
+        {/* Horizontal scrollbar over the whole horizon */}
+        <g>
+          <rect x={LABEL_W + 8} y={size.h - 6} width={Math.max(0, timeW - 16)} height={4} rx={2} fill="#EEF2F6" />
+          <rect
+            x={LABEL_W + 8 + ((x0 - EXTENT_START) / (EXTENT_END - EXTENT_START)) * (timeW - 16)}
+            y={size.h - 7}
+            width={Math.max(24, ((timeW / ppd) / (EXTENT_END - EXTENT_START)) * (timeW - 16))}
+            height={6}
+            rx={3}
+            fill="#B6C2D0"
+            style={{ cursor: "ew-resize" }}
+            onPointerDown={(e) => {
+              e.stopPropagation()
+              ;(svgRef.current as Element).setPointerCapture(e.pointerId)
+              gesture.current = { type: "hscroll", sx: local(e).x, x0 }
+            }}
+          />
+        </g>
+
         {marquee && (
           <rect x={Math.min(marquee.sx, marquee.cx)} y={Math.min(marquee.sy, marquee.cy)} width={Math.abs(marquee.cx - marquee.sx)} height={Math.abs(marquee.cy - marquee.sy)}
-            fill="#2EA8FF" fillOpacity={0.1} stroke="#2EA8FF" strokeDasharray="4 3" pointerEvents="none" />
-        )}
-
-        {/* Drag hint */}
-        {hint && hint.lines.length > 0 && (
-          <g transform={`translate(${Math.min(hint.x + 16, size.w - 290)},${Math.max(RULER_H + 8, hint.y - 54)})`} pointerEvents="none">
-            <rect width={280} height={44} rx={8} fill="#0B1736" stroke="#2EA8FF" />
-            <text x={12} y={19} fontSize={12.5} fontWeight={700} fill="#E8EEFC">{hint.lines[0]}</text>
-            <text x={12} y={35} fontSize={11} fill="#93A3C8">{hint.lines[1]}</text>
-          </g>
+            fill={C.blue} fillOpacity={0.08} stroke={C.blue} strokeDasharray="4 3" pointerEvents="none" />
         )}
       </svg>
 
       {/* Vertical scrollbar */}
       {maxScroll > 0 && (
-        <div className="absolute top-[52px] right-1 bottom-1 w-1.5 rounded-full bg-white/5">
-          <div
-            className="absolute w-1.5 rounded-full bg-white/25"
-            style={{ top: `${(scrollY / (rows.total + 40)) * 100}%`, height: `${Math.min(100, (bodyH / (rows.total + 40)) * 100)}%` }}
-          />
+        <div className="pointer-events-none absolute right-1 w-1.5 rounded-full bg-black/5" style={{ top: HEADER + 4, bottom: 12 }}>
+          <div className="absolute w-1.5 rounded-full bg-black/20" style={{ top: `${(scrollY / (layout.total + 60)) * 100}%`, height: `${Math.min(100, (bodyH / (layout.total + 60)) * 100)}%` }} />
+        </div>
+      )}
+
+      {/* Hover card: full details live here, not on the bar */}
+      {hover && hoverItem && !dragHint && (
+        <HoverCard item={hoverItem} x={hover.x} y={hover.y} hyp={hover.hyp} w={size.w} refDay={refDay} docVig={docVig} />
+      )}
+      {dragHint && (
+        <div className="pointer-events-none absolute z-20 rounded-md border border-primary/40 bg-white px-3 py-2 text-xs shadow-lg" style={{ left: Math.min(dragHint.x + 16, size.w - 280), top: Math.max(HEADER + 6, dragHint.y - 58) }}>
+          <div className="font-semibold text-foreground">{dragHint.lines[0]}</div>
+          <div className="text-muted-foreground">{dragHint.lines[1]}</div>
         </div>
       )}
       {view.connectFrom && (
-        <div className="pointer-events-none absolute top-16 left-1/2 -translate-x-1/2 rounded-full border border-primary/60 bg-panel px-3 py-1 text-xs">
+        <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 rounded-full border border-primary/40 bg-white px-3 py-1 text-xs shadow" style={{ top: HEADER + 10 }}>
           Conectando a partir de “{byId.get(view.connectFrom)?.name}” — clique no destino (Esc cancela)
         </div>
       )}
+    </div>
+  )
+
+  // ── Row pieces ───────────────────────────────────────────────────────────
+  function RowLabel({ r }: { r: Row }) {
+    const y = Y(r.top)
+    if (r.type === "group") {
+      const g = GROUPS.find((x) => x.id === r.group)!
+      const color = GROUP_COLOR[r.group]
+      return (
+        <g>
+          <g data-hit="g-collapse" data-id={r.group} style={{ cursor: "pointer" }}>
+            <rect x={0} y={y} width={LABEL_W} height={r.h} fill="#FFFFFF" />
+            <path d={r.collapsed ? `M14,${y + 13} l5,4 l-5,4` : `M12,${y + 15} l4,5 l4,-5`} fill="none" stroke={color} strokeWidth={1.8} />
+            <text x={28} y={y + 21.5} fontSize={11.5} fontWeight={800} letterSpacing={1.1} fill={color}>
+              {g.code} · {g.label.toUpperCase()}
+            </text>
+            <title>{r.collapsed ? "Expandir grupo" : "Recolher grupo"}</title>
+          </g>
+          {r.collapsed && <text x={LABEL_W - 12} y={y + 21.5} fontSize={10.5} fill={C.text3} textAnchor="end">{r.count} itens</text>}
+        </g>
+      )
+    }
+    if (r.type === "more") {
+      return (
+        <g data-hit="g-detail" data-id={r.group} style={{ cursor: "pointer" }}>
+          <text x={LABEL_W - 14} y={y + 18} fontSize={11.5} fontWeight={600} fill={C.blue} textAnchor="end">
+            {r.count > 0 ? `+ ${r.count} ${r.count === 1 ? "item de detalhe" : "itens de detalhe"}` : "− ocultar detalhes"}
+          </text>
+          <title>{r.count > 0 ? "Mostrar turmas, atividades, contratos e marcos deste grupo" : "Voltar à visão limpa neste grupo"}</title>
+        </g>
+      )
+    }
+    const it = r.item
+    const isSel = sel.has(it.id)
+    const st = statusOf(it, refDay)
+    const main = it.kind === "curso" || it.kind === "vigencia" || it.kind === "planejamento" || it.kind === "projeto"
+    const name = r.virtual ? "Vigência — cenário simulado" : it.name
+    return (
+      <g data-hit="label" data-id={it.id} style={{ cursor: "pointer" }} opacity={dimmed(it) ? 0.4 : 1}>
+        <rect x={0} y={y} width={LABEL_W} height={r.h} fill={isSel ? "#E6F2FA" : r.index % 2 === 1 && !r.virtual ? "#FAFBFD" : "#FFFFFF"} />
+        {isSel && <rect x={0} y={y} width={3} height={r.h} fill={C.blue} />}
+        <StatusGlyph x={LABEL_W - 16} y={y + r.h / 2} status={st.key} pending={st.pending} color={itemColor(it.kind, colorOf(it.projectId), it.color)} />
+        {(() => {
+          // "Projeto 1 — Fundação e histórico" reads as title + qualifier: two lines, not an ellipsis.
+          const fs = 12.5
+          const [head, ...rest] = name.split(" — ")
+          const tail = rest.join(" — ")
+          const two = textWidth(name, fs) > LABEL_W - 46 && !!tail
+          return two ? (
+            <text fontSize={fs} textAnchor="end" fill={C.text}>
+              <tspan x={LABEL_W - 30} y={y + r.h / 2 - 1} fontWeight={main ? 700 : 500}>{truncate(head, LABEL_W - 46, fs)}</tspan>
+              <tspan x={LABEL_W - 30} y={y + r.h / 2 + 12} fontSize={11} fill={C.text2}>{truncate(tail, LABEL_W - 46, 11)}</tspan>
+            </text>
+          ) : (
+            <text x={LABEL_W - 30} y={y + r.h / 2 + 4.5} fontSize={fs} fontWeight={main ? 700 : 500} fill={r.virtual ? C.navy : C.text} textAnchor="end" fontStyle={r.virtual ? "italic" : undefined}>
+              {truncate(name, LABEL_W - 46, fs)}
+            </text>
+          )
+        })()}
+        <title>{`${name}\n${KIND_LABEL[it.kind]} · ${st.label}`}</title>
+      </g>
+    )
+  }
+
+  function ItemBar({ r }: { r: Extract<Row, { type: "item" }> }) {
+    const it = r.item
+    const top = Y(r.top)
+    const cy = top + r.h / 2
+    const by = cy - BAR_H / 2
+    const isSel = sel.has(it.id)
+    const dim = dimmed(it)
+    const color = itemColor(it.kind, colorOf(it.projectId), it.color)
+    const docRow = it.kind === "vigencia" && it.baseRange && !r.virtual
+    const range = docRow ? it.baseRange! : it.range
+    const x1 = X(range.start)
+    const x2 = X(range.end)
+    if (x2 < LABEL_W - 60 || x1 > size.w + 60) return null
+    const w = Math.max(2, x2 - x1)
+    const status = r.virtual ? ("cenario" as StatusKey) : docRow ? "previsto" : statusOf(it, refDay).key
+    const bs = barStyleFor(status, color)
+    const hitKind = docRow ? "item-static" : "item"
+    const enter = (e: React.PointerEvent) => !gesture.current && setHover({ id: it.id, x: local(e).x, y: top + r.h, hyp: r.virtual === "hyp" })
+    const leave = () => setHover((h) => (h?.id === it.id ? null : h))
+
+    // Historic action without a dated source: an approximate interval, never a solid bar.
+    if (it.dateUndetermined) {
+      const mid = (Math.max(x1, LABEL_W) + Math.min(x2, size.w)) / 2
+      const label = "data a validar"
+      return (
+        <g opacity={dim ? 0.3 : 1} onPointerEnter={enter} onPointerLeave={leave}>
+          <rect data-hit="item" data-id={it.id} x={x1} y={by} width={w} height={BAR_H} fill="transparent" style={{ cursor: "grab" }} />
+          <line x1={x1} x2={x2} y1={cy} y2={cy} stroke={C.plan} strokeWidth={2} strokeDasharray="2 4" pointerEvents="none" />
+          <line x1={x1} x2={x1} y1={cy - 6} y2={cy + 6} stroke={C.plan} strokeWidth={2} pointerEvents="none" />
+          <line x1={x2} x2={x2} y1={cy - 6} y2={cy + 6} stroke={C.plan} strokeWidth={2} pointerEvents="none" />
+          <g pointerEvents="none">
+            <rect x={mid - 52} y={cy - 10} width={104} height={20} rx={10} fill="#FFFFFF" stroke="#C9D3DE" />
+            <text x={mid} y={cy + 4} fontSize={11} fontWeight={600} fill={C.text2} textAnchor="middle">{label}</text>
+          </g>
+          {isSel && <rect x={x1 - 2} y={by - 2} width={w + 4} height={BAR_H + 4} rx={4} fill="none" stroke={C.selection} strokeWidth={2} pointerEvents="none" />}
+        </g>
+      )
+    }
+
+    if (it.kind === "marco") {
+      return (
+        <g opacity={dim ? 0.3 : 1} onPointerEnter={enter} onPointerLeave={leave}>
+          <path data-hit="item" data-id={it.id} d={`M${x1},${cy - 9} L${x1 + 9},${cy} L${x1},${cy + 9} L${x1 - 9},${cy} Z`} fill={st0(it) ? "#FFFFFF" : C.navy} stroke={C.navy} strokeWidth={2} style={{ cursor: "grab" }} />
+          <text x={x1 + 15} y={cy + 4} fontSize={12} fontWeight={600} fill={C.text} pointerEvents="none">{fmtDate(it.start)}</text>
+          {isSel && <circle cx={x1} cy={cy} r={14} fill="none" stroke={C.selection} strokeWidth={2} pointerEvents="none" />}
+        </g>
+      )
+    }
+
+    // Part after the documental vigência (calendar fact — not a statement about coverage).
+    const after = docVig && !r.virtual && !docRow && it.kind !== "vigencia" && it.kind !== "projeto" && it.kind !== "planejamento" ? partAfter(range, docVig) : null
+    const afterMonths = after ? calendarMonthsTouched(after) : 0
+    const afterW = after ? X(after.end) - X(after.start) : 0
+    const shortDates = `${shortMonth(range.start)} – ${shortMonth(range.end - 1)}`
+    const innerLabel =
+      r.virtual ? `até ${fmtDate(fromDay(range.end - 1))} · cenário`
+      : docRow ? `até ${fmtDate(fromDay(range.end - 1))} · referência documental`
+      : it.kind === "vigencia" ? `até ${fmtDate(fromDay(range.end - 1))}`
+      : shortDates
+    const innerW = (after ? X(after.start) : x2) - Math.max(x1, LABEL_W) - 16
+    const fitsInside = textWidth(innerLabel, 11.5) < innerW
+    const narrow = w < 12
+    const showAfterLabel = after && (it.kind === "curso" || it.kind === "turma" || isSel)
+
+    return (
+      <g opacity={dim ? 0.3 : 1} onPointerEnter={enter} onPointerLeave={leave}>
+        {it.baseRange && r.virtual === undefined && !docRow && (
+          <rect x={X(it.baseRange.start)} y={by - 2} width={Math.max(2, (it.baseRange.end - it.baseRange.start) * ppd)} height={BAR_H + 4} rx={4}
+            fill="none" stroke={C.text3} strokeDasharray="2 3" pointerEvents="none" />
+        )}
+        {narrow ? (
+          <>
+            <circle data-hit={hitKind} data-id={it.id} cx={x1 + w / 2} cy={cy} r={6} fill={bs.fill} stroke={bs.stroke} strokeWidth={1.5} style={{ cursor: "grab" }} />
+            <text x={x1 + w / 2 + 11} y={cy + 4} fontSize={11.5} fill={C.text2} pointerEvents="none">{shortDates}</text>
+          </>
+        ) : (
+          <rect data-hit={hitKind} data-id={it.id} x={x1} y={by} width={w} height={BAR_H} rx={3}
+            fill={bs.fill} fillOpacity={bs.fillOpacity} stroke={bs.stroke} strokeWidth={bs.strokeWidth} strokeDasharray={bs.dash}
+            style={{ cursor: it.locked || docRow ? "pointer" : "grab" }} />
+        )}
+        {after && !narrow && (
+          <rect x={X(after.start)} y={by} width={Math.max(2, afterW)} height={BAR_H} rx={3} fill={status === "cenario" ? "#FFFFFF" : "url(#stripe-after)"}
+            stroke={C.red} strokeWidth={status === "cenario" ? 1.6 : 0} strokeDasharray={status === "cenario" ? "6 4" : undefined} pointerEvents="none" />
+        )}
+        {!narrow && (fitsInside ? (
+          <text x={Math.max(x1, LABEL_W) + 9} y={cy + 4} fontSize={11.5} fontWeight={600} fill={bs.text} pointerEvents="none">{innerLabel}</text>
+        ) : !after && x2 + 8 + textWidth(innerLabel, 11.5) < size.w ? (
+          <text x={x2 + 8} y={cy + 4} fontSize={11.5} fill={C.text2} pointerEvents="none">{innerLabel}</text>
+        ) : null)}
+        {status === "concluido" && w > 30 && <path d={`M${x2 - 18},${cy} l4,4 l8,-8`} stroke="#FFFFFF" strokeWidth={2} fill="none" pointerEvents="none" />}
+        {after && afterW > 56 && (
+          <text x={X(after.start) + afterW / 2} y={cy + 4} fontSize={11.5} fontWeight={700} fill={status === "cenario" ? C.red : "#FFFFFF"} textAnchor="middle" pointerEvents="none">
+            {afterW > 150 ? `${afterMonths} meses após a vigência` : `+${afterMonths} m`}
+          </text>
+        )}
+        {showAfterLabel && afterW <= 56 && (
+          <text x={X(after!.end) + 8} y={cy + 4} fontSize={11.5} fontWeight={700} fill={C.red} pointerEvents="none">+{afterMonths} meses após a vigência</text>
+        )}
+        {it.changed && !docRow && (
+          <g pointerEvents="none" transform={`translate(${x1},${by - 9})`}>
+            <rect width={50} height={12} rx={2} fill={C.navy} />
+            <text x={25} y={9} fontSize={8.5} fontWeight={800} textAnchor="middle" fill="#FFFFFF" letterSpacing={0.6}>CENÁRIO</text>
+          </g>
+        )}
+        {isSel && (
+          <>
+            <rect x={x1 - 2} y={by - 2} width={w + 4} height={BAR_H + 4} rx={4} fill="none" stroke={C.selection} strokeWidth={2} pointerEvents="none" />
+            {!it.locked && !docRow && !narrow && (
+              <>
+                <rect data-hit="item-l" data-id={it.id} x={x1 - 4} y={by + 4} width={8} height={BAR_H - 8} rx={2} fill="#FFFFFF" stroke={C.selection} strokeWidth={1.5} style={{ cursor: "ew-resize" }} />
+                <rect data-hit="item-r" data-id={it.id} x={x2 - 4} y={by + 4} width={8} height={BAR_H - 8} rx={2} fill="#FFFFFF" stroke={C.selection} strokeWidth={1.5} style={{ cursor: "ew-resize" }} />
+              </>
+            )}
+          </>
+        )}
+        {!isSel && !it.locked && !docRow && !narrow && w > 16 && (
+          <>
+            <rect data-hit="item-l" data-id={it.id} x={x1 - 3} y={by} width={7} height={BAR_H} fill="transparent" style={{ cursor: "ew-resize" }} />
+            <rect data-hit="item-r" data-id={it.id} x={x2 - 4} y={by} width={7} height={BAR_H} fill="transparent" style={{ cursor: "ew-resize" }} />
+          </>
+        )}
+      </g>
+    )
+  }
+
+  function AnnotationShape({ a }: { a: Annotation }) {
+    const linked = a.linkedItemId ? byId.get(a.linkedItemId) : undefined
+    let day: number
+    let rowY: number
+    let anchor: { x: number; y: number } | null = null
+    if (linked) {
+      const row = layout.rowOf(linked.id)
+      if (!row) return null
+      day = linked.range.start + (a.offsetDays ?? 0)
+      rowY = row.top + a.y
+      anchor = { x: X(Math.min(linked.range.end, Math.max(linked.range.start, day))), y: Y(row.top) + row.h / 2 }
+    } else if (a.linkedItemId) return null
+    else {
+      day = toDay(a.date)
+      rowY = a.y
+    }
+    const x = X(day)
+    const y = Y(rowY)
+    const isSelA = selectedAnnotation === a.id
+    if (a.kind === "marker") {
+      return (
+        <g>
+          <line x1={x} x2={x} y1={BODY_TOP} y2={size.h} stroke={C.amber} strokeDasharray="1 3" />
+          <g data-hit="ann" data-id={a.id} style={{ cursor: "move" }} transform={`translate(${x},${y})`}>
+            <path d="M0,0 L0,22 M0,0 L14,5 L0,10" stroke={C.amber} strokeWidth={2} fill={C.amber} />
+            <text x={18} y={10} fontSize={12} fontWeight={600} fill={C.text}>{a.text}</text>
+            {isSelA && <rect x={-4} y={-4} width={30 + textWidth(a.text)} height={30} fill="none" stroke={C.selection} strokeDasharray="3 2" />}
+          </g>
+        </g>
+      )
+    }
+    if (a.kind === "highlight") {
+      const wpx = Math.max(20, (a.width ?? 90) * ppd)
+      return (
+        <g data-hit="ann" data-id={a.id} style={{ cursor: "move" }}>
+          <rect x={x} y={BODY_TOP} width={wpx} height={bodyH} fill="#F6C343" fillOpacity={0.12} stroke={isSelA ? C.selection : C.amber} strokeOpacity={0.6} strokeDasharray="4 3" />
+          <text x={x + 6} y={y + 14} fontSize={12} fontWeight={600} fill={C.text}>{a.text}</text>
+        </g>
+      )
+    }
+    const width = a.width ?? 200
+    const lines = wrapText(a.text, width - 22)
+    const hh = lines.length * 16 + 14
+    const pal = a.kind === "note" ? { bg: "#FFF8DB", bd: "#E3C25C" } : a.kind === "comment" ? { bg: "#EEF5FB", bd: "#9CC3DE" } : { bg: "#FFFFFF", bd: a.color ?? C.navy }
+    return (
+      <g>
+        {anchor && <path d={`M${x + 12},${y + hh} L${anchor.x},${anchor.y}`} stroke={pal.bd} strokeWidth={1.3} fill="none" markerEnd="url(#arrow)" pointerEvents="none" />}
+        <g data-hit="ann" data-id={a.id} transform={`translate(${x},${y})`} style={{ cursor: "move" }}>
+          <rect width={width} height={hh} rx={a.kind === "comment" ? 10 : 4} fill={pal.bg} stroke={isSelA ? C.selection : pal.bd} strokeWidth={isSelA ? 2 : 1} />
+          {a.kind === "callout" && <rect width={3} height={hh} fill={pal.bd} />}
+          {lines.map((ln, i) => (
+            <text key={i} x={12} y={20 + i * 16} fontSize={12} fontWeight={a.kind === "callout" ? 600 : 500} fill={C.text}>{ln}</text>
+          ))}
+        </g>
+      </g>
+    )
+  }
+}
+
+const st0 = (it: EffItem) => it.certainty === "hipotese" || it.certainty === "a_validar" || it.certainty === "planejado"
+
+function StatusGlyph({ x, y, status, pending, color }: { x: number; y: number; status: StatusKey; pending: boolean; color: string }) {
+  return (
+    <g pointerEvents="none">
+      {status === "concluido" ? (
+        <>
+          <circle cx={x} cy={y} r={6} fill={C.green} />
+          <path d={`M${x - 3},${y} l2,2.5 l4,-4.5`} stroke="#fff" strokeWidth={1.6} fill="none" />
+        </>
+      ) : status === "execucao" || status === "previsto" || status === "encerrado" ? (
+        <circle cx={x} cy={y} r={5} fill={color} fillOpacity={status === "encerrado" ? 0.6 : 1} />
+      ) : status === "planejado" ? (
+        <circle cx={x} cy={y} r={5} fill="#fff" stroke={color} strokeWidth={1.8} />
+      ) : status === "cenario" ? (
+        <circle cx={x} cy={y} r={5} fill="#fff" stroke={color} strokeWidth={1.6} strokeDasharray="2 2" />
+      ) : (
+        <circle cx={x} cy={y} r={5} fill="#E4E9F0" stroke="#AEBAC8" />
+      )}
+      {pending && (
+        <g>
+          <circle cx={x + 5} cy={y - 5} r={4} fill="#FFF4D6" stroke={C.amber} strokeWidth={1} />
+          <text x={x + 5} y={y - 2.6} fontSize={6.5} fontWeight={900} fill={C.amber} textAnchor="middle">!</text>
+        </g>
+      )}
+    </g>
+  )
+}
+
+function HoverCard({ item, x, y, hyp, w, refDay, docVig }: { item: EffItem; x: number; y: number; hyp?: boolean; w: number; refDay: number; docVig: DayRange | null }) {
+  const range = item.kind === "vigencia" && item.baseRange && !hyp ? item.baseRange : item.range
+  const st = statusOf({ ...item, range }, refDay)
+  const after = docVig && item.kind !== "vigencia" && item.kind !== "projeto" && item.kind !== "planejamento" && !item.dateUndetermined ? partAfter(range, docVig) : null
+  return (
+    <div className="pointer-events-none absolute z-30 w-[290px] rounded-lg border bg-white p-3 text-[12px] leading-snug shadow-xl shadow-slate-900/10" style={{ left: Math.min(Math.max(8, x - 20), w - 300), top: y + 4 }}>
+      <div className="font-semibold text-foreground">{hyp ? `${item.name} — cenário` : item.name}</div>
+      <div className="text-muted-foreground">{KIND_LABEL[item.kind]} · {st.label}</div>
+      <div className="mt-1.5 font-medium text-foreground">
+        {item.dateUndetermined ? `Período geral ${item.start.slice(0, 4)}–${item.end.slice(0, 4)} · datas específicas a validar` : `${fmtDate(fromDay(range.start))} – ${fmtDate(fromDay(range.end - 1))}`}
+      </div>
+      {!item.dateUndetermined && <div className="text-muted-foreground">{calendarMonthsTouched(range)} meses-calendário · {lengthDays(range)} dias</div>}
+      {after && <div className="mt-1.5 font-semibold text-destructive">{calendarMonthsTouched(after)} meses-calendário após a vigência de referência ({fmtMonthsSpan(after)}). Cobertura a verificar na documentação.</div>}
+      {item.kind === "vigencia" && item.baseRange && <div className="mt-1.5 text-navy">{hyp ? "Hipótese de cenário — não representa aprovação." : "Referência documental — a validar."}</div>}
+      {st.pending && <div className="mt-1.5 text-[#8a5a10]">Informação a validar na documentação.</div>}
     </div>
   )
 }
@@ -872,6 +1071,6 @@ export function exportSvgString(): string | null {
   const clone = svg.cloneNode(true) as SVGSVGElement
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg")
   clone.removeAttribute("style")
-  clone.setAttribute("font-family", "Inter Tight, Arial, sans-serif")
+  clone.setAttribute("font-family", "Inter, Arial, sans-serif")
   return new XMLSerializer().serializeToString(clone)
 }

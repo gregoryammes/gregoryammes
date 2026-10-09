@@ -38,7 +38,7 @@ export function ConfirmHost() {
   })
   if (!text) return null
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/55 p-4" onMouseDown={() => close(false)}>
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/30 p-4" onMouseDown={() => close(false)}>
       <div role="alertdialog" aria-modal="true" aria-label="Confirmar" className="w-[380px] max-w-full rounded-xl border bg-panel-2 p-4 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
         <p className="text-[13px] leading-snug">{text}</p>
         <div className="mt-4 flex justify-end gap-2">

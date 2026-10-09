@@ -1,5 +1,10 @@
 # SKA Tech Hub — Temporal Studio
 
+> **V4 · Executive Light.** Tema claro como padrão; timeline em matriz contínua com coluna fixa de
+> nomes, cabeçalho em quatro níveis (projetos · anos · semestres · meses) e quatro grupos de
+> leitura; vigência documental e vigência simulada em linhas separadas; Jornada formativa por
+> turmas; Modo Diretoria em fundo branco. Detalhes na seção [Redesign V4](#redesign-v4--executive-light).
+
 Ferramenta de planejamento temporal para os Projetos 1, 2 e 3 do SKA Tech Hub. O mesmo
 conjunto de dados alimenta duas experiências:
 
@@ -30,7 +35,7 @@ node scripts/to-artifact.mjs   # converte o build em fragmento de página para C
 | React + SVG próprio | **Escolhida para o editor.** Datas são a fonte de verdade: cada barra é posicionada por `x = (dia − x0) × px/dia`. O SVG é nítido em qualquer zoom, exporta para SVG/PNG e permite hachuras, tracejados e marcadores sem depender de biblioteca. |
 | Canvas / bibliotecas de Gantt | Descartadas. Gantts prontos modelam "tarefas com dependências" e não comportam cinco dimensões temporais independentes (planejamento, vigência, execução pedagógica, financeira e bolsas), nem cenários sobrepostos. |
 | React Flow / tldraw | Descartadas por ora. Anotações livres, caixas, marcadores e conexões foram implementados no próprio SVG, para que fiquem ancorados em **datas** e não em coordenadas soltas. |
-| Three.js | **Usado como camada de apresentação** (Cena 1): os ciclos aparecem como plataformas sobre um trilho temporal, com a vigência como um "portal" iluminado. Todas as datas que o público lê são desenhadas em 2D, em escala linear; a perspectiva nunca carrega uma medida. A cena foi prototipada antes com o conector **Three.js 3D Viewer**. |
+| Three.js | Usado na V3 como camada de apresentação (Cena 1); **removido na V4** a pedido de uma Diretoria sem efeitos 3D: os ciclos aparecem como plataformas sobre um trilho temporal, com a vigência como um "portal" iluminado. Todas as datas que o público lê são desenhadas em 2D, em escala linear; a perspectiva nunca carrega uma medida. A cena foi prototipada antes com o conector **Three.js 3D Viewer**. |
 | Spline MCP | Não estava disponível nesta sessão. Nada no produto depende dele. |
 
 Stack: Vite + React 19 + TypeScript + Tailwind CSS v4 em estrutura shadcn (`components.json`,
@@ -125,3 +130,45 @@ Limitações conhecidas:
   posição é livre.
 - A identidade visual usa uma marca provisória (sem arquivo oficial do SKA nesta sessão) e a paleta
   institucional descrita: azul corporativo, azul-marinho, azul tecnológico, laranja, branco e cinzas.
+
+
+## Redesign V4 — Executive Light
+
+Mudanças em relação à primeira versão, mantendo modelo de dados, edição e testes:
+
+- **Tema claro** (fundo `#F7F9FC`, timeline branca, texto `#18324A`). A cor indica o **projeto**
+  (P1 verde, P2 azul, P3 azul-marinho tracejado enquanto for proposta). A **situação** aparece na
+  forma da barra: sólida (em execução ou previsto), clara com contorno (planejado), tracejada
+  (cenário), cinza pontilhada (não confirmado) e intervalo pontilhado "data a validar" para ações
+  históricas sem data comprovada. Essas ações nunca aparecem como barra contínua.
+- **Quatro grupos recolhíveis**: 01 Planejamento e vigência · 02 Execução educacional · 03 Bolsas e
+  compromissos · 04 Suporte operacional. Na **visão limpa** ficam projetos, vigência, cursos e
+  bolsas. Turmas, atividades, contratos, marcos e operação aparecem em "+ itens de detalhe" ou em
+  Filtros → Detalhada. Arrastar uma barra na vertical muda só a linha ou o grupo; as datas não mudam.
+- **Escala**: abre em 2025–2028. Há atalhos para 2023–2027, 2023–2030 e intervalo personalizado. O
+  detalhamento se adapta ao zoom (anos → semestres → trimestres → meses → semanas), os rótulos que
+  não cabem são omitidos e o zoom mínimo mostra no máximo cerca de 12 anos.
+- **Vigência**: a linha vermelha marca o encerramento documental e a região posterior recebe fundo
+  rosado. O trecho das barras depois dela é listrado e indica os meses-calendário. Num cenário, a
+  vigência simulada ganha **linha própria** ("Vigência — cenário simulado") e uma linha vertical
+  tracejada. A data documental nunca é substituída.
+- **Painel de propriedades** só abre com uma seleção e fecha com ✕. As seções são Identificação,
+  Período, Classificação, Situação, Vínculos e Fonte documental. Os campos financeiros aparecem só
+  para tipos relevantes.
+- **Indicadores** foram reduzidos a uma faixa recolhível (projeto ativo, cursos ativos, registros
+  após a vigência, decisões pendentes), com legenda em linha. O histórico da sessão (`agent-trace`)
+  fica dentro dela.
+- **Jornada formativa** (aba no cabeçalho): matriz anos × turmas, calculada a partir dos registros e
+  sem dados duplicados. Uma turma é identificada pelo ano em que cursa o 9º ano. Um curso técnico
+  iniciado no ano S pertence à turma S−2. Clicar numa célula abre o registro.
+- **Modo Diretoria** em fundo branco, sem 3D (o Three.js foi removido). As cenas são: 1 ciclos
+  numa linha do tempo limpa; 2 a mesma matriz de jornada em escala de palco; 3 "A vigência termina.
+  A formação continua.", com **Explicar Vigência** em 6 passos curtos; 4 decisões e alternativas de
+  continuidade com o impacto temporal de cada cenário.
+- Documentos salvos pela versão anterior são migrados ao abrir (`src/data/migrate.ts`): muda só a
+  posição nas linhas e grupos, nunca datas, situações ou valores.
+
+Referência visual usada: o quadro "Tempo Vigência x Projeto" enviado pelo usuário. Os registros
+desse quadro (bolsas de inglês, NF-e, quantidades de alunos, valores mensais) **não** foram
+importados, porque a maioria não traz datas legíveis e o briefing pede para não presumir. Eles podem
+ser cadastrados quando houver a tabela de origem.

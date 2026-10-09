@@ -87,3 +87,26 @@ describe("continuity and scenarios", () => {
     expect(s.gapToP3).toBe(0)
   })
 })
+
+describe("V4 layout and journey", () => {
+  it("migrates a v1 document into groups without touching dates", async () => {
+    const { normalizeDoc } = await import("@/data/migrate")
+    const legacy = createSeed()
+    legacy.settings.layout = undefined
+    legacy.items = legacy.items.map((i) => (i.id === "t2" ? { ...i, layer: "cenarios" as const, lane: 0 } : i))
+    const before = legacy.items.map((i) => [i.id, i.start, i.end, i.certainty])
+    const d = normalizeDoc(legacy)
+    expect(d.items.find((i) => i.id === "t2")!.layer).toBe("formacao")
+    expect(d.items.map((i) => [i.id, i.start, i.end, i.certainty])).toEqual(before)
+  })
+  it("places Técnico 1 in the 2024 cohort, with its 2027 stage partly after the vigência", async () => {
+    const { buildJourney } = await import("@/studio/JourneyMatrix")
+    const j = buildJourney(applyScenario(createSeed(), "baseline"), 2022, 2026)
+    const y1 = j.cells.find((c) => c.cohort === 2024 && c.stage === 2)!
+    const y2 = j.cells.find((c) => c.cohort === 2024 && c.stage === 3)!
+    expect(y1.item?.id).toBe("t1")
+    expect(y2.item?.id).toBe("t1")
+    expect(y2.afterFrom).toBeCloseTo(181 / 365, 2)
+    expect(j.cells.find((c) => c.cohort === 2025 && c.stage === 2)!.state).toBe("cenario")
+  })
+})
